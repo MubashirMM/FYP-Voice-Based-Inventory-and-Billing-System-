@@ -1,15 +1,21 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from myapp.models.item import Item
+from sqlalchemy.exc import IntegrityError
 from myapp.schemas.items import ItemCreate, ItemUpdate
+from fastapi import HTTPException
 
 # Create
 async def create_items(db: AsyncSession, item: ItemCreate):
     new_item = Item(**item.model_dump())
     db.add(new_item)
-    await db.commit()
-    await db.refresh(new_item)
-    return new_item
+    try:
+        await db.commit()
+        await db.refresh(new_item)
+        return new_item
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="آئٹم پہلے ہی موجود ہے یا نام دہرایا گیا ہے")
 
 # Read all
 async def read_all(db: AsyncSession):
@@ -40,7 +46,6 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate):
     await db.refresh(db_item)
     return db_item
 
-# Delete
 async def delete_item(db: AsyncSession, item_id: int):
     stmt = select(Item).where(Item.item_id == item_id)
     result = await db.execute(stmt)
@@ -49,4 +54,4 @@ async def delete_item(db: AsyncSession, item_id: int):
         return None
     await db.delete(db_item)
     await db.commit()
-    return db_item
+    return True
