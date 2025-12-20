@@ -1,0 +1,29 @@
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Float, Date, String
+from datetime import date
+from myapp.database.session import Base
+
+
+class Bill(Base):
+    __tablename__ = "bills"
+
+
+    bill_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.customer_id"), index=True)
+
+
+    udhar_items_total: Mapped[float] = mapped_column(Float, default=0.0)
+    direct_addition: Mapped[float] = mapped_column(Float, default=0.0)
+    direct_deduction: Mapped[float] = mapped_column(Float, default=0.0)
+    effective_total: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+    status: Mapped[str] = mapped_column(String(10), default="unpaid")
+    bill_date: Mapped[date] = mapped_column(Date, default=date.today)
+
+
+    items = relationship(
+    "BillItemHistory",
+    back_populates="bill",
+    cascade="all, delete-orphan"
+    )

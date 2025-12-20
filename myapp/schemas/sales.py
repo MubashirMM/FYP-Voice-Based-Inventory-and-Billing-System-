@@ -4,7 +4,7 @@ from datetime import date
 
 class SaleRead(BaseModel):
     sale_id: int
-    customer_id: int
+    customer_name: str
     item_id: int
     quantity_sold: float
     dat: date

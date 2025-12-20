@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from myapp.database.session import get_db
 from myapp.schemas.items import ItemCreate, ItemUpdate, ItemRead
 from myapp.crud import items as crud
-# from fastapi import Query
+from sqlalchemy import select
+from myapp.models.item import Item
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -52,3 +53,10 @@ async def delete_item_endpoint(item_id: int, db: AsyncSession = Depends(get_db))
     if not res:
         raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
     return {"message": "آئٹم کامیابی سے حذف کر دیا گیا"}
+
+# @router.delete("/delete_all",response_model=list[ItemRead])
+# async def delete_all(db:AsyncSession=Depends(get_db)):
+#     res= select(Item)
+#     await db.delete(res)
+#     await db.refresh()
+#     return {"Message":"Items deleted succesfuly"}

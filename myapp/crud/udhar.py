@@ -2,6 +2,7 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from myapp.models.udhar import Udhar
 from myapp.models.udhaar_item import UdharItem
+from myapp.crud.bill import sync_bill_from_udhar
 
 async def update_udhar_summary(db: AsyncSession, customer_id: int):
     # calculate total from all udharitems for this customer ONLY
@@ -24,6 +25,7 @@ async def update_udhar_summary(db: AsyncSession, customer_id: int):
 
     await db.commit()
     await db.refresh(udhar)
+    await sync_bill_from_udhar(db, customer_id)
     return udhar
 
 # Functions for updating direct amounts (these won't affect total_amount)
@@ -36,10 +38,11 @@ async def update_direct_addition(db: AsyncSession, customer_id: int, amount: flo
         udhar = Udhar(customer_id=customer_id, direct_addition=amount, total_amount=0.0)
         db.add(udhar)
     else:
-        udhar.direct_addition = amount  # Set or update direct addition
+        udhar.direct_addition = udhar.direct_addition+amount  # Set or update direct addition
     
     await db.commit()
     await db.refresh(udhar)
+    await sync_bill_from_udhar(db, customer_id)
     return udhar
 
 async def update_direct_deduction(db: AsyncSession, customer_id: int, amount: float):
@@ -51,10 +54,11 @@ async def update_direct_deduction(db: AsyncSession, customer_id: int, amount: fl
         udhar = Udhar(customer_id=customer_id, direct_deduction=amount, total_amount=0.0)
         db.add(udhar)
     else:
-        udhar.direct_deduction = amount  # Set or update direct deduction
+        udhar.direct_deduction = udhar.direct_deduction+amount  # Set or update direct deduction
     
     await db.commit()
     await db.refresh(udhar)
+    await sync_bill_from_udhar(db, customer_id)
     return udhar
 
 async def get_udhar_by_customer(db: AsyncSession, customer_id: int):

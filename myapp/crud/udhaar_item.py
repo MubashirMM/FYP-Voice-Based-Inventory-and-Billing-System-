@@ -76,7 +76,7 @@ async def create_udhar(
 
     # 10) Create corresponding sale
     sale = Sale(
-        customer_id=customer.customer_id,
+        customer_name=customer.customer_name,
         item_id=item.item_id,
         quantity_sold=qty_in_base,  # In base units
         dat=use_date,

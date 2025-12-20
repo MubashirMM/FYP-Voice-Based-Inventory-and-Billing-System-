@@ -40,12 +40,27 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate):
     db_item = await read_item(db, item_id)
     if not db_item:
         return None
+
+    # If item_name is being updated, check for duplicates
+    if item.item_name:
+        stmt = select(Item).where(Item.item_name == item.item_name, Item.item_id != item_id)
+        result = await db.execute(stmt)
+        existing = result.scalar_one_or_none()
+        if existing:
+            raise HTTPException(status_code=400, detail="یہ نام پہلے سے موجود ہے، براہ کرم دوسرا نام منتخب کریں")
+
     for field, value in item.model_dump(exclude_unset=True).items():
         setattr(db_item, field, value)
-    await db.commit()
-    await db.refresh(db_item)
-    return db_item
 
+    try:
+        await db.commit()
+        await db.refresh(db_item)
+        return db_item
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail="اپڈیٹ ناکام ہوئی، نام یا ڈیٹا درست نہیں ہے")
+
+# Delete
 async def delete_item(db: AsyncSession, item_id: int):
     stmt = select(Item).where(Item.item_id == item_id)
     result = await db.execute(stmt)
@@ -55,3 +70,5 @@ async def delete_item(db: AsyncSession, item_id: int):
     await db.delete(db_item)
     await db.commit()
     return True
+
+
