@@ -14,3 +14,6 @@ class Sale(Base):
     quantity_sold: Mapped[int] = mapped_column(Integer, nullable=False)
     dat: Mapped[date] = mapped_column(Date, default=date.today)
     item = relationship("Item", back_populates="sales")
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
+    user = relationship("User", back_populates="sales")

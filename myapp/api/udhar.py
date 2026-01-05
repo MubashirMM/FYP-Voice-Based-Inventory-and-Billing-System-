@@ -8,63 +8,47 @@ from myapp.crud.udhar import (
     update_direct_addition, 
     update_direct_deduction
 )
-from pydantic import BaseModel
+from myapp.utils.security import get_current_user
+from myapp.models.user import User
 
 router = APIRouter(prefix="/udhars", tags=["udhars"])
 
-class DirectAmountUpdate(BaseModel):
-    customer_id: int
-    amount: float
-
 @router.get("/", response_model=list[UdharRead])
-async def get_all_udhars(db: AsyncSession = Depends(get_db)):
-    """Get all udhars with computed effective total"""
-    return await list_udhars(db)
+async def get_all_udhars(db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    return await list_udhars(db, current_user)
 
 @router.get("/{customer_id}", response_model=UdharRead)
-async def get_udhar_for_customer(customer_id: int, db: AsyncSession = Depends(get_db)):
-    udhar = await get_udhar_by_customer(db, customer_id)
+async def get_udhar_for_customer(customer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    udhar = await get_udhar_by_customer(db, customer_id, current_user)
     if not udhar:
         raise HTTPException(status_code=404, detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے")
     return udhar
 
 @router.put("/{customer_id}/direct-addition")
-async def set_direct_addition(
-    customer_id: int, 
-    amount: float, 
-    db: AsyncSession = Depends(get_db)
-):
-    """Set direct addition amount (replaces existing value)"""
-    udhar = await update_direct_addition(db, customer_id, amount)
+async def set_direct_addition(customer_id: int, amount: float, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    udhar = await update_direct_addition(db, customer_id, amount, current_user)
     return {
         "message": f"براہ راست جمع: {amount} روپے سیٹ کر دیے گئے",
         "effective_total": udhar.total_amount + udhar.direct_addition - udhar.direct_deduction,
-        "udhar": UdharRead.from_orm(udhar)
+        "udhar": UdharRead.model_validate(udhar)
     }
 
 @router.put("/{customer_id}/direct-deduction")
-async def set_direct_deduction(
-    customer_id: int, 
-    amount: float, 
-    db: AsyncSession = Depends(get_db)
-):
-    """Set direct deduction amount (replaces existing value)"""
-    udhar = await update_direct_deduction(db, customer_id, amount)
+async def set_direct_deduction(customer_id: int, amount: float, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    udhar = await update_direct_deduction(db, customer_id, amount, current_user)
     return {
         "message": f"براہ راست کٹوتی: {amount} روپے سیٹ کر دی گئی",
         "effective_total": udhar.total_amount + udhar.direct_addition - udhar.direct_deduction,
-        "udhar": UdharRead.from_orm(udhar)
+        "udhar": UdharRead.model_validate(udhar)
     }
 
 @router.get("/{customer_id}/summary")
-async def get_udhar_summary(customer_id: int, db: AsyncSession = Depends(get_db)):
-    """Get detailed summary including effective calculations"""
-    udhar = await get_udhar_by_customer(db, customer_id)
+async def get_udhar_summary(customer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
+    udhar = await get_udhar_by_customer(db, customer_id, current_user)
     if not udhar:
         raise HTTPException(status_code=404, detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے")
     
     effective_total = udhar.total_amount + udhar.direct_addition - udhar.direct_deduction
-    
     return {
         "udhar_items_total": udhar.total_amount,
         "direct_addition": udhar.direct_addition,

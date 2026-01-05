@@ -1,13 +1,15 @@
+# crud/items.py
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from myapp.models.item import Item
 from sqlalchemy.exc import IntegrityError
-from myapp.schemas.items import ItemCreate, ItemUpdate
 from fastapi import HTTPException
+from myapp.models.item import Item
+from myapp.models.user import User
+from myapp.schemas.items import ItemCreate, ItemUpdate
 
 # Create
-async def create_items(db: AsyncSession, item: ItemCreate):
-    new_item = Item(**item.model_dump())
+async def create_items(db: AsyncSession, item: ItemCreate, current_user: User):
+    new_item = Item(**item.model_dump(), user_id=current_user.user_id)
     db.add(new_item)
     try:
         await db.commit()
@@ -18,36 +20,31 @@ async def create_items(db: AsyncSession, item: ItemCreate):
         raise HTTPException(status_code=400, detail="آئٹم پہلے ہی موجود ہے یا نام دہرایا گیا ہے")
 
 # Read all
-async def read_all(db: AsyncSession):
-    stmt = select(Item)
+async def read_all(db: AsyncSession, current_user: User):
+    stmt = select(Item).where(Item.user_id == current_user.user_id)
     result = await db.execute(stmt)
     return result.scalars().all()
 
 # Read one
-async def read_item(db: AsyncSession, item_id: int):
-    stmt = select(Item).where(Item.item_id == item_id)
+async def read_item(db: AsyncSession, item_id: int, current_user: User):
+    stmt = select(Item).where(Item.item_id == item_id, Item.user_id == current_user.user_id)
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 # Search
-async def search_item(db: AsyncSession, keywords: str):
-    stmt = select(Item).where(Item.item_name.ilike(f"%{keywords}%"))
+async def search_item(db: AsyncSession, keywords: str, current_user: User):
+    stmt = select(Item).where(
+        Item.user_id == current_user.user_id,
+        Item.item_name.ilike(f"%{keywords}%")
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 
 # Update
-async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate):
-    db_item = await read_item(db, item_id)
+async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate, current_user: User):
+    db_item = await read_item(db, item_id, current_user)
     if not db_item:
         return None
-
-    # If item_name is being updated, check for duplicates
-    if item.item_name:
-        stmt = select(Item).where(Item.item_name == item.item_name, Item.item_id != item_id)
-        result = await db.execute(stmt)
-        existing = result.scalar_one_or_none()
-        if existing:
-            raise HTTPException(status_code=400, detail="یہ نام پہلے سے موجود ہے، براہ کرم دوسرا نام منتخب کریں")
 
     for field, value in item.model_dump(exclude_unset=True).items():
         setattr(db_item, field, value)
@@ -61,14 +58,10 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate):
         raise HTTPException(status_code=400, detail="اپڈیٹ ناکام ہوئی، نام یا ڈیٹا درست نہیں ہے")
 
 # Delete
-async def delete_item(db: AsyncSession, item_id: int):
-    stmt = select(Item).where(Item.item_id == item_id)
-    result = await db.execute(stmt)
-    db_item = result.scalar_one_or_none()
+async def delete_item(db: AsyncSession, item_id: int, current_user: User):
+    db_item = await read_item(db, item_id, current_user)
     if not db_item:
         return None
     await db.delete(db_item)
     await db.commit()
     return True
-
-

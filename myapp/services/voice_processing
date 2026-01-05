@@ -1,0 +1,13 @@
+import base64
+import numpy as np
+from speechbrain.inference.speaker import SpeakerRecognition
+
+# Load model once
+model = SpeakerRecognition.from_hparams(source="speechbrain/spkrec-ecapa-voxceleb")
+
+def audio_to_embedding(audio_bytes: bytes) -> np.ndarray:
+    """Convert raw audio bytes to embedding vector."""
+    with open("temp.wav", "wb") as f:
+        f.write(audio_bytes)
+    emb = model.encode_file("temp.wav")
+    return emb.squeeze().numpy()

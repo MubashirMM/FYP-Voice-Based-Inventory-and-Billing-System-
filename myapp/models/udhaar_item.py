@@ -18,3 +18,5 @@ class UdharItem(Base):
 
     customer = relationship("Customer", back_populates="udharitems")
     item = relationship("Item", back_populates="udharitems")
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
+    user = relationship("User", back_populates="udharitems")
