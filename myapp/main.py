@@ -65,23 +65,3 @@ myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
 
-
-# # //////////////////////////////////////Model Setups
-# import os
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# MODEL_PATH = os.path.join(BASE_DIR, "ai_models", "urdu-whisper-small_diverse1")
-# # MODEL_PATH = r"fast-api\myapp\ai_models\urdu-whisper-small_diverse1"
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-
-# print("Loading model...")
-# asr_pipe = pipeline(
-#     "automatic-speech-recognition",
-#     model=MODEL_PATH,
-#     tokenizer=MODEL_PATH,
-#     device=device
-# )
-# @myapp.post("/transcribe")
-# async def transcribe_audio(file: UploadFile = File(...)):
-#     audio_bytes = await file.read()
-#     result = asr_pipe(audio_bytes, generate_kwargs={"language": "urdu"})
-#     return {"text": result["text"]}
