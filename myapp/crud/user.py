@@ -9,6 +9,7 @@ from myapp.utils.security import verify_password
 from sqlalchemy.ext.asyncio import AsyncSession
 import numpy as np
 import io,base64
+from myapp.schemas.user import ProfileUpdate
 from myapp.utils.security import hash_password, verify_password, create_access_token
 from myapp.services.email import send_email, get_registration_template, get_reset_template
 
@@ -110,7 +111,26 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
         return None
     return create_access_token({"sub": str(user.user_id)})
 
+async def update_user_by_id(db: AsyncSession, user_id: int, update_data: ProfileUpdate):
+    # 1. Fetch the user by ID
+    # In SQLAlchemy 2.0, db.get() is the most efficient way to find by Primary Key
+    user = await db.get(User, user_id)
 
+    if not user:
+        return None
+
+    # 2. Convert schema to dictionary
+    # exclude_unset=True ensures we only loop over fields the user actually sent
+    update_dict = update_data.model_dump(exclude_unset=True)
+
+    for key, value in update_dict.items():
+        key=hash_password(key)
+        setattr(user, key, value)
+
+    # 3. Commit the changes
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 # async def authenticate_user(db: AsyncSession, email: str, password: str):
 #     # Check if user exists

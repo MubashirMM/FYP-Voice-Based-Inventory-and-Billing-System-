@@ -51,7 +51,7 @@ async def get_all(
     return await crud.read_all(db, current_user)
 
 # Update
-@router.put("/{item_id}", response_model=ItemRead)
+@router.patch("/{item_id}", response_model=ItemRead)
 async def update_item(
     item_id: int,
     item: ItemUpdate,

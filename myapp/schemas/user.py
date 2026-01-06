@@ -1,11 +1,16 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
 from pydantic import field_validator
-
+from typing import Optional
 class UserRegister(BaseModel):
     email: EmailStr
     username: str
     password: str
     voice_samples: list[str] | None
+
+class ProfileUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
 
 class PasswordResetConfirm(BaseModel):
     email: EmailStr

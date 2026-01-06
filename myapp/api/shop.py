@@ -25,7 +25,7 @@ async def get_shop(shop_id: int, db: AsyncSession = Depends(get_db), current_use
         raise HTTPException(status_code=404, detail="دکان نہیں ملی")
     return shop
 
-@router.put("/{shop_id}", response_model=ShopRead)
+@router.patch("/{shop_id}", response_model=ShopRead)
 async def update_shop(shop_id: int, shop: ShopUpdate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     updated = await crud.update_shop(db, shop_id, shop.dict(exclude_unset=True), current_user)
     if not updated:

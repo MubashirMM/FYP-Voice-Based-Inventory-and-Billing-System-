@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
-
+from myapp.crud.user import update_user_by_id
 from myapp.database.session import get_db
 from myapp.schemas.user import (
-    UserRegister, UserRead, UserLogin, UserVoiceAdd, UserVoiceLogin, PasswordResetConfirm
+    UserRegister, UserRead, UserLogin, UserVoiceAdd, UserVoiceLogin, PasswordResetConfirm,ProfileUpdate
 )
+
+from fastapi.security import OAuth2PasswordRequestForm
 from myapp.crud.user import (
     register_user, authenticate_user, get_all_users,
     initiate_password_reset, reset_password_in_db, delete_user,
@@ -21,7 +23,6 @@ async def register(payload: UserRegister, background_tasks: BackgroundTasks, db:
     background_tasks.add_task(send_email, user.email, "VBUGIMS میں خوش آمدید", get_registration_template())
     return {"پیغام": "اکاؤنٹ کامیابی سے بنا دیا گیا ہے"}
 
-from fastapi.security import OAuth2PasswordRequestForm
 
 @router.post("/login")
 async def login(
@@ -53,6 +54,28 @@ async def login(
 #         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="غلط ای میل یا پاس ورڈ")
 #     return {"access_token": token, "token_type": "bearer"}
 
+@router.patch("/users/{user_id}", status_code=status.HTTP_200_OK)
+async def patch_user_profile(
+    user_id: int, 
+    payload: ProfileUpdate, 
+    db: AsyncSession = Depends(get_db)
+ ):
+    updated_user = await update_user_by_id(db, user_id, payload)
+    
+    if not updated_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail=f"User with ID {user_id} not found"
+        )
+        
+    return {
+        "message": "Profile updated successfully",
+        "user": {
+            "id": updated_user.user_id,
+            "username": updated_user.username,
+            "email": updated_user.email
+        }
+    }
 @router.post("/forgot-password")
 async def forgot_password(email: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     code = await initiate_password_reset(db, email)

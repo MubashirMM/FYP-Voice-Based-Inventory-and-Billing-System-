@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+import shutil
+from fastapi import FastAPI ,UploadFile,File
 from myapp.database.session import engine, Base
 from myapp.api.items import router as items
 from myapp.api.customer import router as customers
@@ -16,9 +17,10 @@ from myapp.api.bill_item import router as bill_item
 from fastapi import FastAPI, Request, HTTPException 
 from fastapi.responses import JSONResponse
 
+import os
 import torch 
 import io
-
+from faster_whisper import WhisperModel
 from fastapi.middleware.cors import CORSMiddleware
 
 @asynccontextmanager
@@ -42,10 +44,7 @@ myapp = FastAPI(lifespan=lifespan)
 
 
 
-origins = [
-    "http://127.0.0.1:5173",
-    "http://localhost:5173"
-]
+origins = [  "http://127.0.0.1:5173", "http://localhost:5173" ]
 
 myapp.add_middleware(
     CORSMiddleware,
@@ -54,6 +53,34 @@ myapp.add_middleware(
     allow_methods=["*"],       # Allows GET, POST, PUT, DELETE, etc.
     allow_headers=["*"],       # Allows common headers
 )
+
+# PATH to your local fine-tuned model folder
+MODEL_PATH = "./urdu-whisper-fast"
+model = WhisperModel(MODEL_PATH, device="cpu", compute_type="int8")
+
+@myapp.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    # 1. Save the uploaded file temporarily 
+    temp_file = f"temp_{file.filename}"
+    with open(temp_file, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        # 2. Transcribe the whole file
+        segments, info = model.transcribe(temp_file, beam_size=5, language="ur")
+        
+        # Combine all segments into one string
+        full_text = " ".join([segment.text for segment in segments])
+        
+        return {"text": full_text.strip()}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+    finally:
+        # 3. Clean up the temp file
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
 
 myapp.include_router(user)
 myapp.include_router(shop)
@@ -65,3 +92,7 @@ myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
 
+
+
+
+ 
