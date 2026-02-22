@@ -124,7 +124,9 @@ async def update_user_by_id(db: AsyncSession, user_id: int, update_data: Profile
     update_dict = update_data.model_dump(exclude_unset=True)
 
     for key, value in update_dict.items():
-        key=hash_password(key)
+        # Only hash the password field, not all fields
+        if key == "password" and value:
+            value = hash_password(value)
         setattr(user, key, value)
 
     # 3. Commit the changes
@@ -205,5 +207,8 @@ async def get_all_users(db: AsyncSession):
     return res.scalars().all()
 
 async def delete_user(db: AsyncSession, user_id: int):
-    await db.execute(delete(User).where(User.user_id == user_id))
+    result = await db.execute(delete(User).where(User.user_id == user_id))
     await db.commit()
+    # Return True if a row was deleted, False otherwise
+    return result.rowcount > 0
+  

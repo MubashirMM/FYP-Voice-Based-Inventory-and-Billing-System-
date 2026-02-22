@@ -1,12 +1,14 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
+from datetime import datetime
 
 from myapp.models.bill import Bill
 from myapp.models.bill_item_history import BillItemHistory
 from myapp.models.udhar import Udhar
 from myapp.models.udhaar_item import UdharItem
 from myapp.models.user import User
+from myapp.utils.urdu_date import convert_datetime_to_urdu
 
 async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user: User) -> Bill:
     # fetch udhar scoped to user
@@ -30,12 +32,34 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
     res = await db.execute(select(Bill).where(Bill.customer_id == customer_id, Bill.user_id == current_user.user_id, Bill.status == 'unpaid'))
     bill = res.scalar_one_or_none()
 
+    # Get current datetime for Urdu date/time
+    now = datetime.now()
+    bill_urdu = convert_datetime_to_urdu(now, "bill")
+
     if not bill:
-        bill = Bill(customer_id=customer_id, status="unpaid", user_id=current_user.user_id)
+        bill = Bill(
+            customer_id=customer_id, 
+            status="unpaid", 
+            user_id=current_user.user_id,
+            bill_day=bill_urdu["bill_day"],
+            bill_month=bill_urdu["bill_month"],
+            bill_year=bill_urdu["bill_year"],
+            bill_time=bill_urdu["bill_time"],
+            bill_day_name=bill_urdu["bill_day_name"]
+        )
         db.add(bill)
         await db.flush()
     elif bill.status == "paid":
-        bill = Bill(customer_id=customer_id, status="unpaid", user_id=current_user.user_id)
+        bill = Bill(
+            customer_id=customer_id, 
+            status="unpaid", 
+            user_id=current_user.user_id,
+            bill_day=bill_urdu["bill_day"],
+            bill_month=bill_urdu["bill_month"],
+            bill_year=bill_urdu["bill_year"],
+            bill_time=bill_urdu["bill_time"],
+            bill_day_name=bill_urdu["bill_day_name"]
+        )
         db.add(bill)
         await db.flush()
 
@@ -59,10 +83,10 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
             total_amount=item.total_amount,
         ))
 
-    # clear udhar if paid
-    if bill.status == "paid":
+    # Update udhar status to paid instead of deleting
+    if bill.status == "paid" and udhar:
+        udhar.status = "paid"
         await db.execute(delete(UdharItem).where(UdharItem.customer_id == customer_id, UdharItem.user_id == current_user.user_id))
-        await db.execute(delete(Udhar).where(Udhar.customer_id == customer_id, Udhar.user_id == current_user.user_id))
 
     await db.commit()
     await db.refresh(bill)
@@ -99,21 +123,40 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User) -> Bi
         return None
 
     bill.status = "paid"
+    
+    # Update Urdu date/time fields when paying
+    now = datetime.now()
+    bill_urdu = convert_datetime_to_urdu(now, "bill")
+    bill.bill_day = bill_urdu["bill_day"]
+    bill.bill_month = bill_urdu["bill_month"]
+    bill.bill_year = bill_urdu["bill_year"]
+    bill.bill_time = bill_urdu["bill_time"]
+    bill.bill_day_name = bill_urdu["bill_day_name"]
 
-    # Clear udhar tables for this customer scoped to user
+    # Update udhar status to "paid" instead of deleting
+    res = await db.execute(select(Udhar).where(Udhar.customer_id == customer_id, Udhar.user_id == current_user.user_id))
+    udhar = res.scalar_one_or_none()
+    if udhar:
+        udhar.status = "paid"
+    
+    # Clear udhar items for this customer scoped to user
     await db.execute(delete(UdharItem).where(UdharItem.customer_id == customer_id, UdharItem.user_id == current_user.user_id))
-    await db.execute(delete(Udhar).where(Udhar.customer_id == customer_id, Udhar.user_id == current_user.user_id))
 
     await db.commit()
     await db.refresh(bill)
     return bill
 
-async def delete_bill(db: AsyncSession, bill_id: int, current_user: User) -> bool:
-    """Delete a bill scoped to the logged-in user"""
+async def delete_bill(db: AsyncSession, bill_id: int, current_user: User):
+    """Delete a bill scoped to the logged-in user. Returns True if deleted, 'unpaid' if bill is unpaid, False if not found."""
     res = await db.execute(select(Bill).where(Bill.bill_id == bill_id, Bill.user_id == current_user.user_id))
     bill = res.scalar_one_or_none()
+    
     if not bill:
         return False
+    
+    # Check if bill is unpaid - don't allow deletion of unpaid bills
+    if bill.status == "unpaid":
+        return "unpaid"
 
     # Delete related item history scoped to user
     await db.execute(delete(BillItemHistory).where(BillItemHistory.bill_id == bill_id, BillItemHistory.user_id == current_user.user_id))

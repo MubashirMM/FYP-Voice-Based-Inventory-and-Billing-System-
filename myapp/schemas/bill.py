@@ -22,6 +22,11 @@ class BillRead(BaseModel):
     effective_total: float
     status: str
     bill_date: date
+    bill_day: str
+    bill_month: str
+    bill_year: str
+    bill_time: str
+    bill_day_name: str
     items: List[BillItemHistoryRead]
 
 

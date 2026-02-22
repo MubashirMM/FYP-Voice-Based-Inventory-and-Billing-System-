@@ -17,6 +17,13 @@ class Bill(Base):
 
     status: Mapped[str] = mapped_column(String(10), default="unpaid")
     bill_date: Mapped[date] = mapped_column(Date, default=date.today)
+    
+    # Urdu date/time fields - Bill specific
+    bill_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    bill_month: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    bill_year: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    bill_time: Mapped[str] = mapped_column(String(15), nullable=False, default="")
+    bill_day_name: Mapped[str] = mapped_column(String(15), nullable=False, default="")
 
     items = relationship("BillItemHistory", back_populates="bill", cascade="all, delete-orphan")
     user = relationship("User", back_populates="bills")

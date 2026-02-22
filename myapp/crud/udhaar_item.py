@@ -1,6 +1,6 @@
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import date as date_cls
+from datetime import date as date_cls, datetime
 
 from myapp.models.customer import Customer
 from myapp.models.item import Item
@@ -9,18 +9,7 @@ from myapp.models.sales import Sale
 from myapp.utils.units import UnitConverter
 from myapp.crud.udhar import update_udhar_summary
 from myapp.models.user import User
-
-from sqlalchemy.future import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import date as date_cls
-
-from myapp.models.customer import Customer
-from myapp.models.item import Item
-from myapp.models.udhaar_item import UdharItem
-from myapp.models.sales import Sale
-from myapp.utils.units import UnitConverter
-from myapp.crud.udhar import update_udhar_summary
-from myapp.models.user import User
+from myapp.utils.urdu_date import convert_datetime_to_urdu
 
 async def create_udhar(
     db: AsyncSession,
@@ -73,8 +62,17 @@ async def create_udhar(
 
     # Prepare date
     use_date = req_date or date_cls.today()
+    
+    # Get current datetime for time
+    now = datetime.now()
+    
+    # Convert to Urdu format for Udhar
+    udhar_urdu = convert_datetime_to_urdu(now, "udhar")
+    
+    # Convert to Urdu format for Sale
+    sale_urdu = convert_datetime_to_urdu(now, "sale")
 
-    # Create udhar record
+    # Create udhar record with Urdu date/time fields
     udhar = UdharItem(
         customer_id=customer.customer_id,
         item_id=item.item_id,
@@ -83,17 +81,27 @@ async def create_udhar(
         requested_unit=unit.strip(),
         total_amount=total_amount,
         date_=use_date,
-        user_id=current_user.user_id
+        user_id=current_user.user_id,
+        udhar_day=udhar_urdu["udhar_day"],
+        udhar_month=udhar_urdu["udhar_month"],
+        udhar_year=udhar_urdu["udhar_year"],
+        udhar_time=udhar_urdu["udhar_time"],
+        udhar_day_name=udhar_urdu["udhar_day_name"]
     )
     db.add(udhar)
 
-    # Create corresponding sale
+    # Create corresponding sale with Urdu date/time fields
     sale = Sale(
         customer_name=customer.customer_name,
         item_id=item.item_id,
         quantity_sold=qty_in_base,
-        dat=use_date,
-        user_id=current_user.user_id
+        sale_date=use_date,
+        user_id=current_user.user_id,
+        sale_day=sale_urdu["sale_day"],
+        sale_month=sale_urdu["sale_month"],
+        sale_year=sale_urdu["sale_year"],
+        sale_time=sale_urdu["sale_time"],
+        sale_day_name=sale_urdu["sale_day_name"]
     )
     db.add(sale)
 

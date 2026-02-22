@@ -3,7 +3,6 @@ from sqlalchemy.future import select
 from myapp.models.bill_item import BillItem
 from myapp.models.bill import Bill
 from myapp.models.item import Item
-from myapp.models.sales import Sale
 from myapp.utils.units import UnitConverter
 from myapp.models.user import User
 from datetime import date
@@ -58,16 +57,6 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
 
     # Deduct stock
     item.stock_quantity = float(item.stock_quantity) - qty_in_base
-
-    # Create sale record
-    sale = Sale(
-        customer_name="Direct Customer",
-        item_id=item.item_id,
-        quantity_sold=qty_in_base,
-        dat=date.today(),
-        user_id=current_user.user_id
-    )
-    db.add(sale)
 
     await db.commit()
     await db.refresh(bill_item)

@@ -1,6 +1,6 @@
 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import  ForeignKey, Float, Date,String
+from sqlalchemy import ForeignKey, Float, Date, String
 from datetime import date
 from myapp.database.session import Base
 
@@ -14,7 +14,14 @@ class UdharItem(Base):
     quantity: Mapped[float] = mapped_column(Float, nullable=False)        
     requested_unit: Mapped[str] = mapped_column(String(20), nullable=False) 
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
-    date_: Mapped[date] = mapped_column(Date, default=date.today) 
+    date_: Mapped[date] = mapped_column(Date, default=date.today)
+
+    # Urdu date/time fields - Udhar specific
+    udhar_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    udhar_month: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    udhar_year: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    udhar_time: Mapped[str] = mapped_column(String(15), nullable=False, default="")
+    udhar_day_name: Mapped[str] = mapped_column(String(15), nullable=False, default="")
 
     customer = relationship("Customer", back_populates="udharitems")
     item = relationship("Item", back_populates="udharitems")

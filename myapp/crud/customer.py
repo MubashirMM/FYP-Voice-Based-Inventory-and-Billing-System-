@@ -43,6 +43,7 @@ async def search_customer(db: AsyncSession, customer_name: str, current_user: Us
 async def delete_customer(db: AsyncSession, customer_id: int, current_user: User) -> bool | None:
     res = await db.execute(select(Customer).where(Customer.customer_id == customer_id, Customer.user_id == current_user.user_id))
     cust = res.scalar_one_or_none()
+    name=cust.customer_name
     if not cust:
         return None
 
@@ -57,4 +58,4 @@ async def delete_customer(db: AsyncSession, customer_id: int, current_user: User
 
     await db.delete(cust)
     await db.commit()
-    return True
+    return (True,name)

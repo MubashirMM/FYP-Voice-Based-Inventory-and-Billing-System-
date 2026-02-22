@@ -6,7 +6,7 @@ import os
 
 # Best practice: Use environment variables
 SMTP_EMAIL = "interneta1toy9@gmail.com"
-SMTP_PASSWORD = "bnmk dhvq rhvu lbto"
+SMTP_PASSWORD = "zqzc pzav wtnn ttfw"
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 

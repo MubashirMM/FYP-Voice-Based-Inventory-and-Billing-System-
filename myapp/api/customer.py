@@ -35,8 +35,10 @@ async def get_customer(customer_id: int, db: AsyncSession = Depends(get_db), cur
 @router.delete("/{customer_id}")
 async def delete_customer_endpoint(customer_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     result = await crud.delete_customer(db, customer_id, current_user)
-    if result is None:
+    result1=result[0]
+    customer_name=result[1]
+    if result1 is None:
         raise HTTPException(status_code=404, detail="کسٹمر نہیں ملا")
-    if result is False:
+    if result1 is False:
         raise HTTPException(status_code=400, detail="کسٹمر کے پاس غیر ادا شدہ بل موجود ہیں، پہلے بل ادا کریں")
-    return {"detail": f"کسٹمر {customer_id} کامیابی سے ڈیلیٹ کر دیا گیا"}
+    return {"detail": f"کسٹمر {customer_name} کامیابی سے ڈیلیٹ کر دیا گیا"}

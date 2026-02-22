@@ -49,5 +49,10 @@ class UdharRead(BaseModel):
     requested_unit: str
     total_amount: float
     date_: date
+    udhar_day: str
+    udhar_month: str
+    udhar_year: str
+    udhar_time: str
+    udhar_day_name: str
     
     model_config = ConfigDict(from_attributes=True)

@@ -7,7 +7,6 @@ from myapp.models.user import User
 from myapp.utils.security import get_current_user
 
 
-
 router = APIRouter(prefix="/bills", tags=["Bills"])
 
 @router.get("/customer/{customer_id}", response_model=list[BillRead])
@@ -33,7 +32,9 @@ async def pay_customer_bill(customer_id: int, db: AsyncSession = Depends(get_db)
 
 @router.delete("/{bill_id}")
 async def delete_bill_endpoint(bill_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
-    success = await delete_bill(db, bill_id, current_user)
-    if not success:
-        raise HTTPException(status_code=404, detail="Bill not found")
-    return {"detail": f"Bill {bill_id} deleted successfully"}
+    result = await delete_bill(db, bill_id, current_user)
+    if result == "unpaid":
+        raise HTTPException(status_code=400, detail="بل ادا نہیں ہوا۔ پہلے ادا کریں۔")
+    if not result:
+        raise HTTPException(status_code=404, detail="بل نہیں ملا")
+    return {"پیغام": f"بل {bill_id} کامیابی سے حذف کر دیا گیا"}
