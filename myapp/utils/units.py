@@ -1,15 +1,15 @@
 class UnitConverter:
     def __init__(self):
         self.conversions = {
-            # --- Weight units (modern simplified) ---
+            # وزن کی اکائیاں (بنیادی: کلو / گرام)
             "کلو": {
                 "کلو": 1.0,
                 "گرام": 1000.0,
                 "پاؤ": 4.0,          # 1 کلو = 4 پاؤ
                 "چھٹانک": 16.0,      # 1 کلو = 16 چھٹانک
-                "سیر": 1.0,          # 1 سیر = 1 کلو
-                "من": 1/40.0,        # 1 کلو = 1/40 من
-                "بوری": 1/40.0,      # 1 کلو = 1/40 بوری
+                "سیر": 1.0,          # جدید استعمال میں سیر = کلو
+                "من": 1/40.0,
+                "بوری": 1/50.0,      # اب 1 بوری = 50 کلو
             },
             "گرام": {
                 "گرام": 1.0,
@@ -18,7 +18,7 @@ class UnitConverter:
                 "چھٹانک": 1/62.5,
                 "سیر": 1/1000.0,
                 "من": 1/40000.0,
-                "بوری": 1/40000.0,
+                "بوری": 1/50000.0,
             },
             "پاؤ": {
                 "پاؤ": 1.0,
@@ -27,7 +27,7 @@ class UnitConverter:
                 "چھٹانک": 4.0,
                 "سیر": 0.25,
                 "من": 0.25/40.0,
-                "بوری": 0.25/40.0,
+                "بوری": 0.25/50.0,
             },
             "چھٹانک": {
                 "چھٹانک": 1.0,
@@ -36,7 +36,7 @@ class UnitConverter:
                 "گرام": 62.5,
                 "سیر": 0.0625,
                 "من": 0.0625/40.0,
-                "بوری": 0.0625/40.0,
+                "بوری": 0.0625/50.0,
             },
             "سیر": {
                 "سیر": 1.0,
@@ -45,7 +45,7 @@ class UnitConverter:
                 "پاؤ": 4.0,
                 "چھٹانک": 16.0,
                 "من": 1/40.0,
-                "بوری": 1/40.0,
+                "بوری": 1/50.0,
             },
             "من": {
                 "من": 1.0,
@@ -54,19 +54,19 @@ class UnitConverter:
                 "سیر": 40.0,
                 "پاؤ": 160.0,
                 "چھٹانک": 640.0,
-                "بوری": 1.0,
+                "بوری": 40.0 / 50.0,  # 0.8
             },
             "بوری": {
                 "بوری": 1.0,
-                "کلو": 40.0,
-                "گرام": 40000.0,
-                "سیر": 40.0,
-                "پاؤ": 160.0,
-                "چھٹانک": 640.0,
-                "من": 1.0,
+                "کلو": 50.0,
+                "گرام": 50000.0,
+                "سیر": 50.0,
+                "پاؤ": 200.0,
+                "چھٹانک": 800.0,
+                "من": 50.0 / 40.0,    # 1.25
             },
 
-            # --- Volume units ---
+            # حجم کی اکائیاں
             "لیٹر": {
                 "لیٹر": 1.0,
                 "ملی لیٹر": 1000.0,
@@ -76,7 +76,7 @@ class UnitConverter:
                 "لیٹر": 1/1000.0,
             },
 
-            # --- Count units ---
+            # تعداد کی اکائیاں
             "عدد": {
                 "عدد": 1.0,
                 "درجن": 1/12.0,
@@ -93,23 +93,25 @@ class UnitConverter:
                 "درجن": 0.5,
             },
 
-            # --- Packet units ---
+            # پیکٹ والی اکائیاں (1:1 سمجھی جاتی ہیں)
             "پیکٹ": {"پیکٹ": 1.0, "ڈبہ": 1.0, "بوتل": 1.0},
             "ڈبہ": {"ڈبہ": 1.0, "پیکٹ": 1.0, "بوتل": 1.0},
             "بوتل": {"بوتل": 1.0, "پیکٹ": 1.0, "ڈبہ": 1.0},
         }
 
-    def convert(self, base_unit: str, requested_unit: str, qty: float) -> float:
-        base_unit = base_unit.strip()
-        requested_unit = requested_unit.strip()
-        if base_unit not in self.conversions:
-            raise ValueError(f"بنیادی اکائی '{base_unit}' وضع نہیں کی گئی")
-        if requested_unit not in self.conversions[base_unit]:
-            raise ValueError(f"اکائی '{requested_unit}' کو '{base_unit}' میں تبدیل نہیں کیا جا سکتا")
-        factor = self.conversions[base_unit][requested_unit]
-        return qty * factor
+    def convert(self, from_unit: str, to_unit: str, value: float) -> float:
+        from_unit = from_unit.strip()
+        to_unit = to_unit.strip()
 
-    def is_compatible(self, base_unit: str, requested_unit: str) -> bool:
-        base_unit = base_unit.strip()
-        requested_unit = requested_unit.strip()
-        return base_unit in self.conversions and requested_unit in self.conversions[base_unit]
+        if from_unit not in self.conversions:
+            raise ValueError(f"بنیادی اکائی نہیں ملی: {from_unit}")
+        if to_unit not in self.conversions[from_unit]:
+            raise ValueError(f"اس اکائی میں تبدیل نہیں ہو سکتا: {from_unit} → {to_unit}")
+
+        factor = self.conversions[from_unit][to_unit]
+        return value * factor
+
+    def is_compatible(self, unit1: str, unit2: str) -> bool:
+        unit1 = unit1.strip()
+        unit2 = unit2.strip()
+        return unit1 in self.conversions and unit2 in self.conversions[unit1]
