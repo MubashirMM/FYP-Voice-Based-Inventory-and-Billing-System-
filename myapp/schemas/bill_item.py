@@ -15,6 +15,11 @@ class BillItemRead(BaseModel):
     requested_unit: str
     total_amount: float
     date_: date
+    billitem_day: str
+    billitem_month: str
+    billitem_year: str
+    billitem_time: str
+    billitem_day_name: str
 
     class Config:
         from_attributes = True

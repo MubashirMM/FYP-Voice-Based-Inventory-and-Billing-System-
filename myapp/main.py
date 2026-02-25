@@ -11,8 +11,11 @@ from myapp.api.bill import router as bill
 from myapp.api.user import router as user
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware 
-# from transformers import pipeline 
 from myapp.api.shop import router as shop
+from myapp.api.report import router as report
+from myapp.api.forcasting import router as forcast
+
+
 from myapp.api.bill_item import router as bill_item
 from fastapi import FastAPI, Request, HTTPException 
 from fastapi.responses import JSONResponse
@@ -51,6 +54,11 @@ myapp.include_router(bill_item)
 myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
+myapp.include_router(report)
+myapp.include_router(forcast) 
+
+
+
 
 
 

@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr, ConfigDict
 from pydantic import field_validator
 from typing import Optional
+
 class UserRegister(BaseModel):
     email: EmailStr
     username: str
@@ -42,8 +43,6 @@ class UserVoiceLogin(BaseModel):
 class PasswordResetRequest(BaseModel):
     email: EmailStr 
 
-class UserVoiceAdd(BaseModel):
-    user_id: int
-    voice_samples: list[str] 
+
 
 

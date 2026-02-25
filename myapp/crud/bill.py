@@ -11,9 +11,25 @@ from myapp.models.user import User
 from myapp.utils.urdu_date import convert_datetime_to_urdu
 
 async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user: User) -> Bill:
-    # fetch udhar scoped to user
-    res = await db.execute(select(Udhar).where(Udhar.customer_id == customer_id, Udhar.user_id == current_user.user_id))
+    # fetch unpaid udhar scoped to user (or latest one if no unpaid)
+    res = await db.execute(
+        select(Udhar).where(
+            Udhar.customer_id == customer_id, 
+            Udhar.user_id == current_user.user_id,
+            Udhar.status == "unpaid"
+        )
+    )
     udhar = res.scalar_one_or_none()
+    
+    # If no unpaid udhar, get the latest one
+    if not udhar:
+        res = await db.execute(
+            select(Udhar).where(
+                Udhar.customer_id == customer_id, 
+                Udhar.user_id == current_user.user_id
+            ).order_by(Udhar.udhar_id.desc())
+        )
+        udhar = res.scalar_one_or_none()
 
     # fetch udhar items scoped to user
     res = await db.execute(
@@ -133,8 +149,14 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User) -> Bi
     bill.bill_time = bill_urdu["bill_time"]
     bill.bill_day_name = bill_urdu["bill_day_name"]
 
-    # Update udhar status to "paid" instead of deleting
-    res = await db.execute(select(Udhar).where(Udhar.customer_id == customer_id, Udhar.user_id == current_user.user_id))
+    # Update unpaid udhar status to "paid" instead of deleting
+    res = await db.execute(
+        select(Udhar).where(
+            Udhar.customer_id == customer_id, 
+            Udhar.user_id == current_user.user_id,
+            Udhar.status == "unpaid"
+        )
+    )
     udhar = res.scalar_one_or_none()
     if udhar:
         udhar.status = "paid"

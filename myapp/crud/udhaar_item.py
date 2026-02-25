@@ -4,12 +4,14 @@ from datetime import date as date_cls, datetime
 
 from myapp.models.customer import Customer
 from myapp.models.item import Item
+from myapp.models.udhar import Udhar   
 from myapp.models.udhaar_item import UdharItem
 from myapp.models.sales import Sale
 from myapp.utils.units import UnitConverter
 from myapp.crud.udhar import update_udhar_summary
 from myapp.models.user import User
 from myapp.utils.urdu_date import convert_datetime_to_urdu
+
 
 async def create_udhar(
     db: AsyncSession,
@@ -23,7 +25,7 @@ async def create_udhar(
     if quantity <= 0:
         raise ValueError("مقدار صفر یا منفی نہیں ہو سکتی")
 
-    # Fetch item scoped to user
+    # Fetch item
     item_res = await db.execute(
         select(Item).where(Item.item_name == item_name, Item.user_id == current_user.user_id)
     )
@@ -31,7 +33,7 @@ async def create_udhar(
     if not item:
         raise ValueError(f"آئٹم '{item_name}' موجود نہیں ہے")
 
-    # Fetch or create customer scoped to user
+    # Fetch or create customer
     cust_res = await db.execute(
         select(Customer).where(Customer.customer_name == customer_name, Customer.user_id == current_user.user_id)
     )
@@ -44,36 +46,39 @@ async def create_udhar(
 
     # Unit conversion
     converter = UnitConverter()
-    if not converter.is_compatible(item.item_unit, unit):
-        raise ValueError(f"اکائی '{unit}' آئٹم کی بنیادی اکائی '{item.item_unit}' کے ساتھ مطابقت نہیں رکھتی")
-
     qty_in_base = converter.convert(item.item_unit, unit, quantity)
 
-    # Inventory check
     if qty_in_base > float(item.stock_quantity):
-        raise ValueError(
-            f"ذخیرہ ناکافی ہے۔ موجودہ: {item.stock_quantity} {item.item_unit}, "
-            f"درکار: {qty_in_base} {item.item_unit}"
-        )
+        raise ValueError("ذخیرہ ناکافی ہے")
 
-    # Calculate total
     unit_price_base = float(item.unit_price)
     total_amount = unit_price_base * qty_in_base
 
-    # Prepare date
     use_date = req_date or date_cls.today()
-    
-    # Get current datetime for time
     now = datetime.now()
-    
-    # Convert to Urdu format for Udhar
     udhar_urdu = convert_datetime_to_urdu(now, "udhar")
-    
-    # Convert to Urdu format for Sale
     sale_urdu = convert_datetime_to_urdu(now, "sale")
 
-    # Create udhar record with Urdu date/time fields
-    udhar = UdharItem(
+    # Find existing unpaid udhar
+    existing_unpaid_udhar_res = await db.execute(
+        select(Udhar).where(
+            Udhar.customer_id == customer.customer_id,
+            Udhar.user_id == current_user.user_id,
+            Udhar.status == "unpaid"
+        )
+    )
+    existing_unpaid_udhar = existing_unpaid_udhar_res.scalar_one_or_none()
+
+    if existing_unpaid_udhar:
+        udhar = existing_unpaid_udhar
+    else:
+        udhar = Udhar(customer_id=customer.customer_id, user_id=current_user.user_id, status="unpaid")
+        db.add(udhar)
+        await db.flush()
+
+    # ✅ Correct: set foreign key udhar_id, not udharitem_id
+    udhar_item = UdharItem(
+        udhar_id=udhar.udhar_id,
         customer_id=customer.customer_id,
         item_id=item.item_id,
         unit_price=unit_price_base,
@@ -88,9 +93,9 @@ async def create_udhar(
         udhar_time=udhar_urdu["udhar_time"],
         udhar_day_name=udhar_urdu["udhar_day_name"]
     )
-    db.add(udhar)
+    db.add(udhar_item)
 
-    # Create corresponding sale with Urdu date/time fields
+    # Create sale
     sale = Sale(
         customer_name=customer.customer_name,
         item_id=item.item_id,
@@ -108,31 +113,26 @@ async def create_udhar(
     # Deduct inventory
     item.stock_quantity = float(item.stock_quantity) - qty_in_base
 
-    # Commit once
     await db.commit()
-    await db.refresh(udhar)
+    await db.refresh(udhar_item)
     await db.refresh(sale)
     await db.refresh(item)
 
-    # Update summary (pass current_user!)
     await update_udhar_summary(db, customer.customer_id, current_user)
 
-    return udhar
-
+    return udhar_item
 
 async def get_udhar_by_id(db: AsyncSession, udhar_id: int, current_user: User):
     result = await db.execute(
-        select(UdharItem).where(UdharItem.udharitem_id == udhar_id, UdharItem.user_id == current_user.user_id)
+        select(Udhar).where(Udhar.udhar_id == udhar_id, Udhar.user_id == current_user.user_id)
     )
     return result.scalar_one_or_none()
-
 
 async def list_udharitems(db: AsyncSession, current_user: User):
     res = await db.execute(
         select(UdharItem).where(UdharItem.user_id == current_user.user_id).order_by(UdharItem.date_.desc())
     )
     return res.scalars().all()
-
 
 async def list_udharitems_by_customer(db: AsyncSession, customer_id: int, current_user: User):
     res = await db.execute(

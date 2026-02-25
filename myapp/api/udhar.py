@@ -54,6 +54,5 @@ async def get_udhar_summary(customer_id: int, db: AsyncSession = Depends(get_db)
         "direct_addition": udhar.direct_addition,
         "direct_deduction": udhar.direct_deduction,
         "effective_total": effective_total,
-        "effective_status": "paid" if effective_total == 0 else "unpaid",
-        "base_status": udhar.status
+        "status": udhar.status
     }

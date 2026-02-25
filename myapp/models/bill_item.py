@@ -19,6 +19,13 @@ class BillItem(Base):
     requested_unit: Mapped[str] = mapped_column(String(20), nullable=False)
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
     date_: Mapped[date] = mapped_column(Date, default=date.today)
+    
+    # Urdu date/time fields - BillItem specific
+    billitem_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    billitem_month: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    billitem_year: Mapped[str] = mapped_column(String(10), nullable=False, default="")
+    billitem_time: Mapped[str] = mapped_column(String(15), nullable=False, default="")
+    billitem_day_name: Mapped[str] = mapped_column(String(15), nullable=False, default="")
 
     # User scoping
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
