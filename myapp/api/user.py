@@ -23,7 +23,7 @@ async def register(payload: UserRegister, background_tasks: BackgroundTasks, db:
     user = await register_user(db, payload.email, payload.username, payload.password)
     # Offload email sending
     background_tasks.add_task(send_email, user.email, "VBUGIMS میں خوش آمدید", get_registration_template())
-    return {"پیغام": "اکاؤنٹ کامیابی سے بنا دیا گیا ہے"}
+    return {"detail": "اکاؤنٹ کامیابی سے بنا دیا گیا ہے"}
 
 # ---------------------------
 # Login
@@ -53,7 +53,7 @@ async def patch_user_profile(user_id: int, payload: ProfileUpdate, db: AsyncSess
             detail=f"صارف {user_id} نہیں ملا"
         )
     return {
-        "پیغام": "پروفائل کامیابی سے اپ ڈیٹ کر دیا گیا ہے",
+        "detail": "پروفائل کامیابی سے اپ ڈیٹ کر دیا گیا ہے",
         "صارف": {
             "id": updated_user.user_id,
             "username": updated_user.username,

@@ -1,4 +1,3 @@
-# utils/urdu_date.py
 """
 Urdu Date/Time utilities for converting dates to Urdu format
 """
@@ -42,13 +41,6 @@ def get_urdu_day_number(day: int) -> str:
 def convert_date_to_urdu(date_obj, prefix: str = "sale") -> dict:
     """
     Convert a date object to Urdu components
-    
-    Args:
-        date_obj: datetime.date object
-        prefix: prefix for field names (sale, udhar, bill)
-        
-    Returns:
-        dict with day, month, year, day_name in Urdu
     """
     if date_obj is None:
         return {
@@ -61,28 +53,18 @@ def convert_date_to_urdu(date_obj, prefix: str = "sale") -> dict:
     day = date_obj.day
     month = date_obj.month
     year = date_obj.year
-    
-    # Python weekday(): Monday=0, Sunday=6
-    # We want Monday=0, Sunday=6 for our URDU_DAYS array
     weekday = date_obj.weekday()  # 0=Monday, 6=Sunday
     
     return {
-        f"{prefix}_day": str(day),  # Keep day as number (e.g., "1", "15")
+        f"{prefix}_day": get_urdu_day_number(day),   # Urdu ordinal day
         f"{prefix}_month": get_urdu_month(month),
-        f"{prefix}_year": str(year),  # Keep year as number (e.g., "2024")
+        f"{prefix}_year": str(year),
         f"{prefix}_day_name": get_urdu_day_name(weekday)
     }
 
 def convert_datetime_to_urdu(datetime_obj, prefix: str = "sale") -> dict:
     """
     Convert a datetime object to Urdu components including time
-    
-    Args:
-        datetime_obj: datetime.datetime object
-        prefix: prefix for field names (sale, udhar, bill)
-        
-    Returns:
-        dict with day, month, year, time, day_name in Urdu
     """
     if datetime_obj is None:
         return {
@@ -98,8 +80,9 @@ def convert_datetime_to_urdu(datetime_obj, prefix: str = "sale") -> dict:
     hour = datetime_obj.hour
     minute = datetime_obj.minute
     
-    # Format time as HH:MM in 12-hour format with AM/PM
-    period = "AM" if hour < 12 else "PM"
+    # Urdu AM/PM
+    period = "صبح" if hour < 12 else "شام"
+    
     hour_12 = hour if hour <= 12 else hour - 12
     if hour_12 == 0:
         hour_12 = 12

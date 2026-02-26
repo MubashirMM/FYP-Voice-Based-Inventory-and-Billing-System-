@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 myapp = FastAPI(lifespan=lifespan)
-origins = [  "http://127.0.0.1:5173", "http://localhost:5173" ]
+origins = [  "http://127.0.0.1:5173", "http://localhost:5173","null" ]
 myapp.add_middleware(
     CORSMiddleware,
     allow_origins=origins,     
@@ -55,7 +55,7 @@ myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
 myapp.include_router(report)
-myapp.include_router(forcast) 
+myapp.include_router(forcast)  
 
 
 

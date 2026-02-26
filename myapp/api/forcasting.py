@@ -1,9 +1,11 @@
 # routers/forecast.py
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from myapp.database.session import get_db
 from myapp.models.sales import Sale
+from myapp.models.user import User
+from myapp.utils.security import get_current_user
 from prophet import Prophet
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,31 +16,44 @@ from io import BytesIO
 router = APIRouter(prefix="/forecast", tags=["Forecast"])
 
 @router.get("/")
-async def forecast_sales(db: AsyncSession = Depends(get_db), periods: int = 3):
-    # 1. Query sales data
-    result = await db.execute(select(Sale))
+async def forecast_sales(
+    periods: int = 3,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 1. Query sales data for the logged-in user
+    result = await db.execute(
+        select(Sale).where(Sale.user_id == current_user.user_id)  # ✅ fixed here
+    )
     sales = result.scalars().all()
 
-    df = pd.DataFrame([{"ds": s.sale_date, "y": s.quantity_sold} for s in sales])
-    if df.empty:
-        return {"error": "No sales data available"}
+    if not sales:
+        raise HTTPException(status_code=404, detail="اس صارف کے لئے کوئی سیلز ڈیٹا موجود نہیں ہے")
 
-    # 2. Fit Prophet
+    # 2. Prepare DataFrame
+    df = pd.DataFrame([{"ds": s.sale_date, "y": s.quantity_sold} for s in sales])
+    df["ds"] = pd.to_datetime(df["ds"], errors="coerce")
+    df["y"] = pd.to_numeric(df["y"], errors="coerce")
+    df = df.dropna(subset=["ds", "y"])
+    if df.empty:
+        raise HTTPException(status_code=400, detail="سیلز ڈیٹا درست نہیں ہے")
+
+    # 3. Fit Prophet
     model = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True)
     model.fit(df)
 
-    # 3. Forecast
+    # 4. Forecast
     future = model.make_future_dataframe(periods=periods, freq="W")
     forecast = model.predict(future)
 
-    # 4. Prepare JSON report (convert Timestamp to string)
+    # 5. Prepare JSON report
     report = forecast[["ds", "yhat", "yhat_lower", "yhat_upper"]].copy()
-    report["ds"] = report["ds"].astype(str)   # <-- key fix
+    report["ds"] = report["ds"].astype(str)
     report = report.to_dict(orient="records")
 
-    # 5. Generate graph
+    # 6. Generate graph
     fig = model.plot(forecast)
-    plt.title("Sales Forecast (Prophet)")
+    plt.title(f"Sales Forecast for User {current_user.user_id}")
     plt.xlabel("Date")
     plt.ylabel("Predicted Sales")
 
@@ -47,7 +62,6 @@ async def forecast_sales(db: AsyncSession = Depends(get_db), periods: int = 3):
     buf.seek(0)
     img_base64 = base64.b64encode(buf.read()).decode("utf-8")
 
-    # 6. Return both JSON + graph
     return JSONResponse(content={
         "forecast": report,
         "graph": f"data:image/png;base64,{img_base64}"

@@ -5,6 +5,9 @@ import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 import arabic_reshaper
 from bidi.algorithm import get_display
+import plotly.express as px
+import plotly.io as pio 
+
 
 # ======================================================
 # LOAD FONT (Arabic/Urdu supporting font)
@@ -108,4 +111,22 @@ def generate_charts(item_name: str, sales: list, charts_base_dir="charts"):
         "bar_chart": bar_path,
         "pie_chart": pie_path,
         "area_chart": area_path
+    }
+
+def generate_interactive_charts(item_name: str, sales: list):
+    dates = [s.sale_date for s in sales]
+    quantities = [s.quantity_sold for s in sales]
+
+    # Line chart
+    fig_line = px.line(x=dates, y=quantities,
+                       title=f"{item_name} وقت کے ساتھ فروخت کا رجحان",
+                       labels={"x": "تاریخ", "y": "فروخت کی مقدار"})
+    # Bar chart
+    fig_bar = px.bar(x=dates, y=quantities,
+                     title=f"{item_name} روزانہ فروخت",
+                     labels={"x": "تاریخ", "y": "فروخت کی مقدار"})
+
+    return {
+        "line_chart": pio.to_json(fig_line),
+        "bar_chart": pio.to_json(fig_bar)
     }

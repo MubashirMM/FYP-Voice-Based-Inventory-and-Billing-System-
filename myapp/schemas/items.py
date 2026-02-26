@@ -1,13 +1,33 @@
 from pydantic import BaseModel, field_validator, ConfigDict
 from typing import Optional
 
-# Common allowed units list
-ALLOWED_UNITS = [
-    "کلو", "گرام", "پاؤ", "چھٹانک",
+# ✅ Complete allowed units list (matching UnitConverter)
+ALLOWED_UNITS =  [
+    # Base Weight Units
+    "کلو", "گرام", "پاؤ", "چھٹانک", "سیر", "من", "بوری",
+
+    # Volume Units
     "لیٹر", "ملی لیٹر",
-    "عدد", "درجن",
-    "پیکٹ", "ڈبہ", "بوتل", "بوری",
+
+    # Count Units
+    "عدد", "درجن", "آدھا درجن",
+
+    # Package Units
+    "پیکٹ", "ڈبہ", "بوتل",
+
+    # Fractional Weight Units (آدھا)
+    "آدھا کلو", "آدھا گرام", "آدھا پاؤ", "آدھا چھٹانک",
+    "آدھا سیر", "آدھا من", "آدھا بوری",
+
+    # Fractional Weight Units (ڈیڑھ)
+    "ڈیڑھ کلو", "ڈیڑھ گرام", "ڈیڑھ پاؤ", "ڈیڑھ چھٹانک",
+    "ڈیڑھ سیر", "ڈیڑھ من", "ڈیڑھ بوری",
+
+    # Fractional Weight Units (ڈھائی)
+    "ڈھائی کلو", "ڈھائی گرام", "ڈھائی پاؤ", "ڈھائی چھٹانک",
+    "ڈھائی سیر", "ڈھائی من", "ڈھائی بوری",
 ]
+
 
 class Items(BaseModel):
     item_name: str
@@ -32,7 +52,7 @@ class ItemCreate(BaseModel):
     def stock_non_negative(cls, v):
         if v < 0:
             raise ValueError("اسٹاک منفی نہیں ہو سکتا")
-        return v
+        return v 
 
     @field_validator("item_unit")
     def valid_unit(cls, v):
