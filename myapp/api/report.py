@@ -8,6 +8,8 @@ from myapp.models.item import Item
 from myapp.models.user import User
 from myapp.utils.security import get_current_user
 from myapp.utils.report_charts import generate_charts, generate_interactive_charts
+from sqlalchemy.orm import selectinload
+from datetime import datetime
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -22,10 +24,7 @@ async def generate_sales_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # 1. Base query
-    # stmt = select(Sale).where(Sale.user_id == current_user.user_id)
-    from sqlalchemy.orm import selectinload
-
+    
     stmt = (
         select(Sale)
         .options(selectinload(Sale.item))   # preload related Item
@@ -40,7 +39,6 @@ async def generate_sales_report(
     if month:
         stmt = stmt.where(extract("month", Sale.sale_date) == month)
     if start_date and end_date:
-        from datetime import datetime
         try:
             sd = datetime.fromisoformat(start_date)
             ed = datetime.fromisoformat(end_date)

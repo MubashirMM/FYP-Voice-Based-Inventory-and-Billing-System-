@@ -1,20 +1,34 @@
-# models/report.py
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any
+
+from sqlalchemy import ForeignKey, String, DateTime
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import Integer, ForeignKey, DateTime, String, Text
-from datetime import datetime
+
 from myapp.database.session import Base
 
 class Report(Base):
     __tablename__ = "reports"
 
-    report_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
-    item_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    report_id: Mapped[int] = mapped_column(primary_key=True, index=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    filters_applied: Mapped[str] = mapped_column(Text, nullable=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.user_id"),
+        nullable=False
+    )
 
-    kpi_summary: Mapped[str] = mapped_column(Text, nullable=True)   # JSON string of KPIs
-    charts_paths: Mapped[str] = mapped_column(Text, nullable=True)  # folder path for charts
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    user = relationship("User", back_populates="reports")
+    filters: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    kpi_summary: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    table_data: Mapped[Dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    charts_static: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+    charts_interactive: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSONB)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc)
+    )
+
+    # relationship
+    user: Mapped["User"] = relationship(back_populates="reports")
