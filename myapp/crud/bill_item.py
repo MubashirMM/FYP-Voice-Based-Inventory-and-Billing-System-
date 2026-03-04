@@ -71,7 +71,7 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
         quantity=data["quantity"],  # original requested quantity
         requested_unit=data["requested_unit"],
         total_amount=total_amount,
-        date_=date.today(),
+        created_date=date.today(),
         user_id=current_user.user_id,
         billitem_day=urdu_billitem["billitem_day"],
         billitem_month=urdu_billitem["billitem_month"],

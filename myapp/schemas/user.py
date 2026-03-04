@@ -33,7 +33,6 @@ class UserRead(BaseModel):
     user_id: int
     email: EmailStr
     username: str
-    
     model_config = ConfigDict(from_attributes=True)
 
 class UserVoiceLogin(BaseModel):

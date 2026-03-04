@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
-import shutil
-from fastapi import FastAPI ,UploadFile,File
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 from myapp.database.session import engine, Base
+
+# Routers
 from myapp.api.items import router as items
 from myapp.api.customer import router as customers
 from myapp.api.sales import router as sales
@@ -9,23 +13,12 @@ from myapp.api.udhar import router as udhar
 from myapp.api.udhaar_item import router as udhaar_item
 from myapp.api.bill import router as bill
 from myapp.api.user import router as user
-from fastapi import FastAPI, UploadFile, File
-from fastapi.middleware.cors import CORSMiddleware 
 from myapp.api.shop import router as shop
 from myapp.api.report import router as report
 from myapp.api.forcasting import router as forcast
-
-
 from myapp.api.bill_item import router as bill_item
-from fastapi import FastAPI, Request, HTTPException 
-from fastapi.responses import JSONResponse
 
-import os
-import torch 
-import io
-# from faster_whisper import WhisperModel
-from fastapi.middleware.cors import CORSMiddleware
-
+# Database lifespan
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
@@ -33,18 +26,60 @@ async def lifespan(app: FastAPI):
     yield
     await engine.dispose()
 
+# Create app
 myapp = FastAPI(lifespan=lifespan)
-origins = [  "http://127.0.0.1:5173", "http://localhost:5173","null" ]
+
+# CORS setup
+origins = ["http://127.0.0.1:5173", "http://localhost:5173", "null"]
 myapp.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,     
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],       # Allows GET, POST, PUT, DELETE, etc.
-    allow_headers=["*"],       # Allows common headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# error_map is defined in myapp.utils.errors to avoid circular imports
+from myapp.utils.errors import error_map
 
+# ✅ HTTPException handler
+@myapp.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    error_label = error_map.get(exc.status_code, "نامعلوم مسئلہ")
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": error_label, "detail": exc.detail},
+    )
 
+# ✅ ValueError handler (common for manual checks)
+@myapp.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError):
+    # map Python ValueError to 400 with Urdu label
+    return JSONResponse(
+        status_code=400,
+        content={"error": "غلط ویلیو", "detail": str(exc)},
+    )
+
+# ✅ Request validation errors (body/query/path validation)
+from fastapi.exceptions import RequestValidationError
+
+@myapp.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    # exc.errors() returns a list of validation issues
+    return JSONResponse(
+        status_code=422,
+        content={"error": "غلط ڈیٹا", "detail": exc.errors()},
+    )
+
+# ✅ General Exception handler
+@myapp.exception_handler(Exception)
+async def custom_general_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": "سرور کی خرابی", "detail": str(exc)},
+    )
+
+# Routers
 myapp.include_router(user)
 myapp.include_router(shop)
 myapp.include_router(items)
@@ -55,12 +90,4 @@ myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
 myapp.include_router(report)
-myapp.include_router(forcast)  
-
-
-
-
-
-
-
- 
+myapp.include_router(forcast)

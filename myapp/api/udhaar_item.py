@@ -21,7 +21,6 @@ async def create_new_udhar(
             item_name=udhar_data.item_name,
             quantity=udhar_data.quantity,
             unit=udhar_data.unit,
-            req_date=udhar_data.date_,
             current_user=current_user
         )
         return udhar

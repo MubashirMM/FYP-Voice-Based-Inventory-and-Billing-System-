@@ -1,8 +1,11 @@
 from pydantic import BaseModel
 
+from pydantic import BaseModel, Field
+
 class ShopBase(BaseModel):
-    shop_name: str
-    address: str | None = None
+    shop_name: str = Field(..., min_length=1)
+    # make address required and non-empty; Pydantic will reject null or missing values
+    address: str = Field(..., min_length=1)
 
 class ShopCreate(ShopBase):
     pass

@@ -3,6 +3,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, DECIMAL, Integer,ForeignKey,UniqueConstraint
 from myapp.database.session import Base
 from sqlalchemy import Float
+from datetime import date
+from sqlalchemy import Date
 class Item(Base):
     __tablename__ = "items"
 
@@ -12,6 +14,7 @@ class Item(Base):
     item_unit: Mapped[str] = mapped_column(String(20), nullable=False)  # e.g., "kilo", "liter", "packet"
     unit_price: Mapped[float] = mapped_column(DECIMAL(10, 2), nullable=False)  # price per item_unit
     stock_quantity: Mapped[int] = mapped_column(Float, nullable=False, default=0.0)  # inventory in item_unit units
+    created_date: Mapped[date] = mapped_column(Date, default=date.today)
 
     sales = relationship("Sale", back_populates="item")
     udharitems = relationship("UdharItem", back_populates="item")

@@ -138,9 +138,10 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User) -> Bi
     if not bill:
         return None
 
+    # Mark bill as paid
     bill.status = "paid"
     
-    # Update Urdu date/time fields when paying
+    # Update Urdu date/time fields for bill
     now = datetime.now()
     bill_urdu = convert_datetime_to_urdu(now, "bill")
     bill.bill_day = bill_urdu["bill_day"]
@@ -149,7 +150,7 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User) -> Bi
     bill.bill_time = bill_urdu["bill_time"]
     bill.bill_day_name = bill_urdu["bill_day_name"]
 
-    # Update unpaid udhar status to "paid" instead of deleting
+    # Update unpaid udhar status to "paid" and set paid date fields
     res = await db.execute(
         select(Udhar).where(
             Udhar.customer_id == customer_id, 
@@ -160,13 +161,26 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User) -> Bi
     udhar = res.scalar_one_or_none()
     if udhar:
         udhar.status = "paid"
-    
+        udhar.paid_date = now.date()
+        urdu_paid = convert_datetime_to_urdu(now, "paid")
+        udhar.paid_day = urdu_paid["paid_day"]
+        udhar.paid_month = urdu_paid["paid_month"]
+        udhar.paid_year = urdu_paid["paid_year"]
+        udhar.paid_time = urdu_paid["paid_time"]
+        udhar.paid_day_name = urdu_paid["paid_day_name"]
+
     # Clear udhar items for this customer scoped to user
-    await db.execute(delete(UdharItem).where(UdharItem.customer_id == customer_id, UdharItem.user_id == current_user.user_id))
+    await db.execute(
+        delete(UdharItem).where(
+            UdharItem.customer_id == customer_id,
+            UdharItem.user_id == current_user.user_id
+        )
+    )
 
     await db.commit()
     await db.refresh(bill)
     return bill
+
 
 async def delete_bill(db: AsyncSession, bill_id: int, current_user: User):
     """Delete a bill scoped to the logged-in user. Returns True if deleted, 'unpaid' if bill is unpaid, False if not found."""

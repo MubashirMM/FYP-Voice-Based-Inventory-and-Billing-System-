@@ -9,7 +9,7 @@ class UdharCreateRequest(BaseModel):
     item_name: str
     quantity: float = Field(gt=0, description="Quantity must be greater than 0")
     unit: str
-    date_: Optional[date] = None  # Optional, will default to today if not provided
+    created_date: Optional[date] = None  # Optional, will default to today if not provided
     
     @field_validator("unit")
     def validate_unit(cls, v):
@@ -58,7 +58,7 @@ class UdharCreateDB(BaseModel):
     quantity: float
     requested_unit: str
     total_amount: float
-    date_: date = Field(default_factory=date.today)  # Default to today
+    created_date: date = Field(default_factory=date.today)  # Default to today
 
 class UdharRead(BaseModel):
     """Response schema"""
@@ -69,7 +69,7 @@ class UdharRead(BaseModel):
     quantity: float
     requested_unit: str
     total_amount: float
-    date_: date
+    created_date: date
     udhar_day: str
     udhar_month: str
     udhar_year: str

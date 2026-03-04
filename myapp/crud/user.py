@@ -140,7 +140,18 @@ async def get_all_users(db: AsyncSession):
     res = await db.execute(select(User))
     return res.scalars().all()
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
 async def delete_user(db: AsyncSession, user_id: int):
-    result = await db.execute(delete(User).where(User.user_id == user_id))
+    # Load the user instance
+    result = await db.execute(select(User).where(User.user_id == user_id))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        return False
+
+    # Delete via ORM so cascades apply
+    await db.delete(user)
     await db.commit()
-    return result.rowcount > 0
+    return True

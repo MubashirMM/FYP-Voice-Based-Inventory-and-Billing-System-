@@ -34,6 +34,7 @@ class BillItemCreate(BaseModel):
     item_name: str
     quantity: float = Field(..., gt=0, description="مقدار صفر سے زیادہ ہونی چاہیے")
     requested_unit: str
+    created_date: Optional[date] = None  # Optional, defaults to today if not provided
 
     @field_validator("item_name")
     def name_not_empty(cls, v):
@@ -56,7 +57,7 @@ class BillItemRead(BaseModel):
     quantity: float
     requested_unit: str
     total_amount: float
-    date_: date
+    created_date: date
     billitem_day: str
     billitem_month: str
     billitem_year: str

@@ -20,7 +20,7 @@ async def create_udhar(
     quantity: float,
     unit: str,
     current_user: User,
-    req_date: date_cls | None = None
+    # req_date: date_cls | None = None
 ):
     if quantity <= 0:
         raise ValueError("مقدار صفر یا منفی نہیں ہو سکتی")
@@ -44,7 +44,7 @@ async def create_udhar(
         await db.commit()
         await db.refresh(customer)
 
-    # ✅ Corrected Unit conversion
+   
     converter = UnitConverter()
     # Always convert requested unit → item base unit
     qty_in_base = converter.convert(unit, item.item_unit, quantity)
@@ -55,7 +55,7 @@ async def create_udhar(
     unit_price_base = float(item.unit_price)
     total_amount = unit_price_base * qty_in_base
 
-    use_date = req_date or date_cls.today()
+    use_date =date_cls.today()
     now = datetime.now()
     udhar_urdu = convert_datetime_to_urdu(now, "udhar")
     sale_urdu = convert_datetime_to_urdu(now, "sale")
@@ -86,7 +86,7 @@ async def create_udhar(
         quantity=quantity,              # original requested quantity
         requested_unit=unit.strip(),    # requested unit
         total_amount=total_amount,
-        date_=use_date,
+        created_date=use_date,
         user_id=current_user.user_id,
         udhar_day=udhar_urdu["udhar_day"],
         udhar_month=udhar_urdu["udhar_month"],
@@ -95,7 +95,6 @@ async def create_udhar(
         udhar_day_name=udhar_urdu["udhar_day_name"]
     )
     db.add(udhar_item)
-
     # Create sale (always in base unit)
     sale = Sale(
         customer_name=customer.customer_name,
@@ -120,6 +119,10 @@ async def create_udhar(
     await db.refresh(item)
 
     await update_udhar_summary(db, customer.customer_id, current_user)
+# After db.commit() and refreshes
+    await update_udhar_summary(db, customer.customer_id, current_user)
+# Also refresh udhar itself
+    await db.refresh(udhar)
 
     return udhar_item
 
@@ -133,7 +136,7 @@ async def get_udhar_by_id(db: AsyncSession, udhar_id: int, current_user: User):
 
 async def list_udharitems(db: AsyncSession, current_user: User):
     res = await db.execute(
-        select(UdharItem).where(UdharItem.user_id == current_user.user_id).order_by(UdharItem.date_.desc())
+        select(UdharItem).where(UdharItem.user_id == current_user.user_id).order_by(UdharItem.created_date.desc())
     )
     return res.scalars().all()
 
@@ -142,6 +145,6 @@ async def list_udharitems_by_customer(db: AsyncSession, customer_id: int, curren
     res = await db.execute(
         select(UdharItem)
         .where(UdharItem.customer_id == customer_id, UdharItem.user_id == current_user.user_id)
-        .order_by(UdharItem.date_.desc())
+        .order_by(UdharItem.created_date.desc())
     )
     return res.scalars().all()

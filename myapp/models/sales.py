@@ -11,7 +11,7 @@ class Sale(Base):
     customer_name: Mapped[str] = mapped_column(String, nullable=False)
     item_id: Mapped[int] = mapped_column(ForeignKey("items.item_id"))
     quantity_sold: Mapped[int] = mapped_column(Integer, nullable=False)
-    
+
     # Original date field (kept for compatibility)
     sale_date: Mapped[date] = mapped_column(Date, default=date.today)
     

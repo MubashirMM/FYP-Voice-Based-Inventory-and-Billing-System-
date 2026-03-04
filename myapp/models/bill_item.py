@@ -18,7 +18,7 @@ class BillItem(Base):
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     requested_unit: Mapped[str] = mapped_column(String(20), nullable=False)
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
-    date_: Mapped[date] = mapped_column(Date, default=date.today)
+    created_date: Mapped[date] = mapped_column(Date, default=date.today)
     
     # Urdu date/time fields - BillItem specific
     billitem_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")
@@ -29,9 +29,7 @@ class BillItem(Base):
 
     # User scoping
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
-
     # Relationships
     bill = relationship("Bill", back_populates="billitems")
-    # item = relationship("Item", back_populates="billitems")
     item = relationship("Item", back_populates="billitems", lazy="joined")
     user = relationship("User", back_populates="billitems")

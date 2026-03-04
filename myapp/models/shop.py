@@ -7,7 +7,8 @@ class Shop(Base):
 
     shop_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     shop_name: Mapped[str] = mapped_column(String(250), nullable=False, index=True)
-    address: Mapped[str] = mapped_column(String(500), nullable=True)
+    # don't allow null in the database either (add migration later)
+    address: Mapped[str] = mapped_column(String(500), nullable=False)
 
     # User scoping
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)

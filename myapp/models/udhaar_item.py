@@ -18,7 +18,7 @@ class UdharItem(Base):
     quantity: Mapped[float] = mapped_column(Float, nullable=False)
     requested_unit: Mapped[str] = mapped_column(String(20), nullable=False)
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
-    date_: Mapped[date] = mapped_column(Date, default=date.today)
+    created_date: Mapped[date] = mapped_column(Date, default=date.today)
 
     # Urdu date/time fields
     udhar_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")

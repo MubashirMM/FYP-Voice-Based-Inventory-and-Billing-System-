@@ -106,3 +106,26 @@ def get_current_date_urdu() -> dict:
     """Get current date in Urdu format"""
     from datetime import date
     return convert_date_to_urdu(date.today())
+
+def format_full_date_urdu(date_obj) -> str:
+    """Return full Urdu date like '12 فروری 2022'"""
+    if date_obj is None:
+        return ""
+    day = str(date_obj.day)  # numeric day
+    month = get_urdu_month(date_obj.month)
+    year = str(date_obj.year)
+    return f"{day} {month} {year}"
+
+from datetime import datetime,date
+
+def parse_user_date(date_str: str) -> date:
+    """
+    Parse user-provided date string into a Python date object.
+    Supports 'YYYY-MM-DD', 'DD-MM-YYYY', 'DD/MM/YYYY'.
+    """
+    for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    raise ValueError("Invalid date format. Use YYYY-MM-DD or DD-MM-YYYY.")

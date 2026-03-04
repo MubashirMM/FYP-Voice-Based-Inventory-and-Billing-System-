@@ -1,41 +1,31 @@
-from pydantic import BaseModel, field_validator, ConfigDict
+from pydantic import BaseModel, field_validator, ConfigDict, computed_field
 from typing import Optional
+from datetime import date
+from myapp.utils.urdu_date import format_full_date_urdu
 
-# ✅ Complete allowed units list (matching UnitConverter)
-ALLOWED_UNITS =  [
-    # Base Weight Units
+# ✅ Allowed units list
+ALLOWED_UNITS = [
     "کلو", "گرام", "پاؤ", "چھٹانک", "سیر", "من", "بوری",
-
-    # Volume Units
     "لیٹر", "ملی لیٹر",
-
-    # Count Units
     "عدد", "درجن", "آدھا درجن",
-
-    # Package Units
     "پیکٹ", "ڈبہ", "بوتل",
-
-    # Fractional Weight Units (آدھا)
     "آدھا کلو", "آدھا گرام", "آدھا پاؤ", "آدھا چھٹانک",
     "آدھا سیر", "آدھا من", "آدھا بوری",
-
-    # Fractional Weight Units (ڈیڑھ)
     "ڈیڑھ کلو", "ڈیڑھ گرام", "ڈیڑھ پاؤ", "ڈیڑھ چھٹانک",
     "ڈیڑھ سیر", "ڈیڑھ من", "ڈیڑھ بوری",
-
-    # Fractional Weight Units (ڈھائی)
     "ڈھائی کلو", "ڈھائی گرام", "ڈھائی پاؤ", "ڈھائی چھٹانک",
     "ڈھائی سیر", "ڈھائی من", "ڈھائی بوری",
 ]
 
-
+# Base schema
 class Items(BaseModel):
     item_name: str
     stock_quantity: float
     item_unit: str
     unit_price: float
+    created_date: Optional[date] = None  # stored as Date in DB
 
-
+# Create schema
 class ItemCreate(BaseModel):
     item_name: str
     item_unit: str
@@ -52,7 +42,7 @@ class ItemCreate(BaseModel):
     def stock_non_negative(cls, v):
         if v < 0:
             raise ValueError("اسٹاک منفی نہیں ہو سکتا")
-        return v 
+        return v
 
     @field_validator("item_unit")
     def valid_unit(cls, v):
@@ -60,7 +50,7 @@ class ItemCreate(BaseModel):
             raise ValueError("اکائی درست نہیں ہے")
         return v
 
-
+# Update schema
 class ItemUpdate(BaseModel):
     item_name: Optional[str] = None
     stock_quantity: Optional[float] = None
@@ -85,8 +75,15 @@ class ItemUpdate(BaseModel):
             raise ValueError("اکائی درست نہیں ہے")
         return v
 
-
+# Read schema
 class ItemRead(Items):
     item_id: int
     user_id: int
+    created_date: Optional[date] = None
+
+    @computed_field
+    @property
+    def created_date_urdu(self) -> str:
+        return format_full_date_urdu(self.created_date)
+
     model_config = ConfigDict(from_attributes=True)
