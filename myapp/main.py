@@ -66,9 +66,16 @@ from fastapi.exceptions import RequestValidationError
 @myapp.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     # exc.errors() returns a list of validation issues
+    cleaned_errors = []
+    for err in exc.errors():
+        if "ctx" in err:
+            # Convert any non-serializable objects (like ValueError) to strings
+            err["ctx"] = {k: str(v) for k, v in err["ctx"].items()}
+        cleaned_errors.append(err)
+
     return JSONResponse(
         status_code=422,
-        content={"error": "غلط ڈیٹا", "detail": exc.errors()},
+        content={"error": "غلط ڈیٹا", "detail": cleaned_errors},
     )
 
 # ✅ General Exception handler

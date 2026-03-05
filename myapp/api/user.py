@@ -1,17 +1,20 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+from fastapi.security import OAuth2PasswordRequestForm
+
 from myapp.crud.user import (
-    register_user, authenticate_user, get_all_users,
-    initiate_password_reset, reset_password_in_db, delete_user,
+    authenticate_voice, register_user, authenticate_user, get_all_users,
+    initiate_password_reset, reset_password_in_db, delete_user, save_voice_samples,
     update_user_by_id
 )
 from myapp.database.session import get_db
 from myapp.schemas.user import (
-    UserRegister, UserRead, PasswordResetConfirm, ProfileUpdate
+    UserRegister, UserRead, PasswordResetConfirm, ProfileUpdate,
+    UserVoiceLogin, VoiceSamplesSave
 )
-from fastapi.security import OAuth2PasswordRequestForm
 from myapp.services.email import send_email, get_registration_template, get_reset_template
+from myapp.utils.security import create_access_token, get_current_user  # ✅ import from your auth utilities
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -21,12 +24,11 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(payload: UserRegister, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     user = await register_user(db, payload.email, payload.username, payload.password)
-    # Offload email sending
     background_tasks.add_task(send_email, user.email, "VBUGIMS میں خوش آمدید", get_registration_template())
     return {"detail": "اکاؤنٹ کامیابی سے بنا دیا گیا ہے"}
 
 # ---------------------------
-# Login
+# Login (Password)
 # ---------------------------
 @router.post("/login")
 async def login(payload: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
@@ -59,7 +61,7 @@ async def patch_user_profile(user_id: int, payload: ProfileUpdate, db: AsyncSess
             "username": updated_user.username,
             "email": updated_user.email
         }
-    } 
+    }
 
 # ---------------------------
 # Forgot Password
@@ -72,7 +74,6 @@ async def forgot_password(email: str, background_tasks: BackgroundTasks, db: Asy
             status_code=status.HTTP_404_NOT_FOUND,
             detail="ای میل موجود نہیں ہے"
         )
-    # Offload reset email sending
     background_tasks.add_task(send_email, email, "پاس ورڈ ری سیٹ کوڈ", get_reset_template(code))
     return {"پیغام": "ری سیٹ کوڈ آپ کی ای میل پر بھیج دیا گیا ہے"}
 
@@ -115,4 +116,43 @@ async def delete_user_endpoint(user_id: int, db: AsyncSession = Depends(get_db))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"صارف کو حذف کرنے کے دوران خرابی: {str(e)}"
+        )
+
+# ---------------------------
+# Save Voice Samples
+# ---------------------------
+@router.post("/save-voice-samples")
+async def save_voice(payload: VoiceSamplesSave, db: AsyncSession = Depends(get_db)):
+    user = await save_voice_samples(db, payload.email, payload.samples)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="صارف نہیں ملا"
+        )
+    return {"پیغام": "وائس سیمپلز کامیابی سے محفوظ کر دیے گئے ہیں"}
+
+# ---------------------------
+# Voice Login
+# ---------------------------
+@router.post("/voice-login")
+async def voice_login(payload: UserVoiceLogin, db: AsyncSession = Depends(get_db)):
+    try:
+        print("[voice_login] email:", payload.email)
+        user = await authenticate_voice(db, payload.email, payload.audio_base64)
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="آواز میل نہیں کھاتی۔ دوبارہ کوشش کریں۔"
+            )
+       # Wrap the user_id in a dictionary
+        token = create_access_token(data={"sub": str(user.user_id)})
+        print("[voice_login] success for user_id:", user.user_id)
+        return {"access_token": token, "token_type": "bearer"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        print("[voice_login] ERROR:", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"وائس لاگ ان کے دوران خرابی: {str(e)}"
         )

@@ -1,68 +1,81 @@
 import random
 from datetime import datetime, timedelta, timezone
-from sqlalchemy import select, delete
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import HTTPException, status
+from fastapi import HTTPException,status
+
 from myapp.utils.security import hash_password, verify_password, create_access_token
+from myapp.utils.voice import combine_embeddings, match_voice
 from myapp.models.user import User
 from myapp.schemas.user import ProfileUpdate
 from myapp.services.email import send_email, get_registration_template, get_reset_template
 
-# ---------------------------
+# --------------------------- 
 # Register User
 # ---------------------------
 async def register_user(db: AsyncSession, email: str, username: str, password: str):
-    # Ensure email uniqueness
     res = await db.execute(select(User).where(User.email == email))
     if res.scalar_one_or_none():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="یہ ای میل پہلے سے رجسٹرڈ ہے۔"
-        )
+        raise HTTPException(status_code=400, detail="یہ ای میل پہلے سے رجسٹرڈ ہے۔")
 
     hashed = hash_password(password)
     user = User(email=email, username=username, password_hash=hashed)
-
     db.add(user)
-    try:
-        await db.commit()
-        await db.refresh(user)
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail="ڈیٹا بیس میں خرابی آگئی۔")
+    await db.commit()
+    await db.refresh(user)
 
-    # Send welcome email
     try:
-        subject = "VBUGIMS میں خوش آمدید"
-        body = get_registration_template()
-        send_email(email, subject, body)
+        send_email(email, "VBUGIMS میں خوش آمدید", get_registration_template())
     except Exception as e:
-        # Log but don’t break registration
-        print(f"Email failed to send: {e}")
+        print(f"Email failed: {e}")
 
     return user
 
 # ---------------------------
-# Authenticate User
+# Authenticate User (Password)
 # ---------------------------
 async def authenticate_user(db: AsyncSession, email: str, password: str):
-    email = email.strip()
-    res = await db.execute(select(User).where(User.email.ilike(email)))
+    res = await db.execute(select(User).where(User.email.ilike(email.strip())))
     user = res.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=401, detail="ای میل نہیں ملی۔")
+    if not verify_password(password, user.password_hash):
+        raise HTTPException(status_code=401, detail="پاس ورڈ غلط ہے۔")
+    return create_access_token({"sub": str(user.user_id)})
 
+# ---------------------------
+# Voice Functions
+# ---------------------------
+async def save_voice_samples(db: AsyncSession, email: str, samples: list[str]):
+    res = await db.execute(select(User).where(User.email == email))
+    user = res.scalar_one_or_none()
+    if not user:
+        return None
+    user.voice_embedding = combine_embeddings(samples)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+async def authenticate_voice(db: AsyncSession, email: str, audio_base64: str):
+    res = await db.execute(select(User).where(User.email == email))
+    user = res.scalar_one_or_none()
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="ای میل نہیں ملی۔"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="ای میل رجسٹرڈ نہیں ہے۔"
         )
-
-    if not verify_password(password, user.password_hash):
+    if not user.voice_embedding:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="پاس ورڈ غلط ہے۔"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="اس صارف کے لئے وائس سیمپل محفوظ نہیں ہیں۔"
         )
+    if match_voice(user.voice_embedding, audio_base64):
+        return user
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="آواز میل نہیں کھاتی۔ دوبارہ کوشش کریں۔"
+    )
 
-    return create_access_token({"sub": str(user.user_id)})
 
 # ---------------------------
 # Update User
@@ -91,7 +104,7 @@ async def initiate_password_reset(db: AsyncSession, email: str):
 
     if user:
         code = f"VBUGIMS-{random.randint(100000, 999999)}"
-        expiry = datetime.now(timezone.utc) + timedelta(minutes=15)  # 15 min expiry
+        expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
 
         user.password_reset_code = code
         user.password_reset_expiry = expiry
@@ -118,7 +131,6 @@ async def reset_password_in_db(db: AsyncSession, email: str, reset_code: str, ne
     if not user or user.password_reset_code != reset_code:
         return False
 
-    # Check expiry
     if not user.password_reset_expiry or datetime.now(timezone.utc) > user.password_reset_expiry:
         return False
 
@@ -136,22 +148,24 @@ async def get_user_by_id(db: AsyncSession, user_id: int):
     res = await db.execute(select(User).where(User.user_id == user_id))
     return res.scalar_one_or_none()
 
+async def get_user_by_email(db: AsyncSession, email: str):
+    res = await db.execute(select(User).where(User.email.ilike(email.strip())))
+    return res.scalar_one_or_none()
+
 async def get_all_users(db: AsyncSession):
     res = await db.execute(select(User))
     return res.scalars().all()
 
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-
+# ---------------------------
+# Delete User
+# ---------------------------
 async def delete_user(db: AsyncSession, user_id: int):
-    # Load the user instance
     result = await db.execute(select(User).where(User.user_id == user_id))
     user = result.scalar_one_or_none()
 
     if not user:
         return False
 
-    # Delete via ORM so cascades apply
     await db.delete(user)
     await db.commit()
     return True

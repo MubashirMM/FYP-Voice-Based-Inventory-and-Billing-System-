@@ -35,12 +35,16 @@ class UserRead(BaseModel):
     username: str
     model_config = ConfigDict(from_attributes=True)
 
-class UserVoiceLogin(BaseModel):
-    email: EmailStr
-    audio_base64: str  
-
 class PasswordResetRequest(BaseModel):
     email: EmailStr 
+
+class VoiceSamplesSave(BaseModel):
+    email: EmailStr
+    samples: list[str] 
+
+class UserVoiceLogin(BaseModel):
+    email: EmailStr
+    audio_base64: str
 
 
 
