@@ -1,4 +1,4 @@
-import base64
+
 import numpy as np
 from speechbrain.inference.speaker import SpeakerRecognition
 

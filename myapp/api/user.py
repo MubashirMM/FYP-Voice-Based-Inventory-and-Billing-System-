@@ -14,8 +14,7 @@ from myapp.schemas.user import (
     UserVoiceLogin, VoiceSamplesSave
 )
 from myapp.services.email import send_email, get_registration_template, get_reset_template
-from myapp.utils.security import create_access_token, get_current_user  # ✅ import from your auth utilities
-
+from myapp.utils.security import create_access_token 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 # ---------------------------
@@ -100,7 +99,7 @@ async def get_users(db: AsyncSession = Depends(get_db)):
 # ---------------------------
 # Delete User
 # ---------------------------
-@router.delete("/delete_user")
+@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
 async def delete_user_endpoint(user_id: int, db: AsyncSession = Depends(get_db)):
     try:
         result = await delete_user(db, user_id)

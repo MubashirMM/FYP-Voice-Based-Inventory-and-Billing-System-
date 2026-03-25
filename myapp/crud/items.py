@@ -1,10 +1,9 @@
-# crud/items.py
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException
 from myapp.models.item import Item
-from myapp.models.user import User
+from myapp.models.user import User 
 from myapp.schemas.items import ItemCreate, ItemUpdate
 
 # Create
@@ -14,6 +13,8 @@ async def create_items(db: AsyncSession, item: ItemCreate, current_user: User):
     try:
         await db.commit()
         await db.refresh(new_item)
+
+
         return new_item
     except IntegrityError:
         await db.rollback()

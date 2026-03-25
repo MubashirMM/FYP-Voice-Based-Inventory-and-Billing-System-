@@ -1,0 +1,22 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment (CRITICAL: This stops the 1000s of warnings)
+.venv/
+venv/
+ENV/
+
+# AI Models & Large Data (Ignore the heavy weights, keep the logic)
+/ai_model/*
+!/ai_model/__init__.py
+!/ai_model/asr_model.py
+!/ai_model/ner_model.py
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Environment variables (Keep your API keys secret!)
+.env

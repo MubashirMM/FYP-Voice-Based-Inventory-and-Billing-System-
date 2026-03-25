@@ -8,7 +8,6 @@ from myapp.models.user import User
 from myapp.utils.security import get_current_user  # your JWT dependency
 
 router = APIRouter(prefix="/items", tags=["items"])
-
 # Create
 @router.post("/", response_model=ItemRead)
 async def create_item(
@@ -19,7 +18,9 @@ async def create_item(
     return await crud.create_items(db, item, current_user)
 
 # Search
+
 @router.get("/search", response_model=list[ItemRead])
+
 async def search(
     keywords: str,
     db: AsyncSession = Depends(get_db),
@@ -32,6 +33,7 @@ async def search(
 
 # Get one
 @router.get("/{item_id}", response_model=ItemRead)
+ 
 async def get_item(
     item_id: int,
     db: AsyncSession = Depends(get_db),
@@ -44,6 +46,7 @@ async def get_item(
 
 # Get all
 @router.get("/", response_model=list[ItemRead])
+
 async def get_all(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -52,6 +55,7 @@ async def get_all(
 
 # Update
 @router.patch("/{item_id}", response_model=ItemRead)
+ 
 async def update_item(
     item_id: int,
     item: ItemUpdate,
@@ -65,6 +69,7 @@ async def update_item(
 
 # Delete
 @router.delete("/{item_id}")
+
 async def delete_item_endpoint(
     item_id: int,
     db: AsyncSession = Depends(get_db),
