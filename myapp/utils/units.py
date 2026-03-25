@@ -1,3 +1,5 @@
+from typing import Dict, Tuple
+
 FRACTIONAL_PREFIXES = {
     "آدھا": 0.5,
     "ڈیڑھ": 1.5,
@@ -6,8 +8,8 @@ FRACTIONAL_PREFIXES = {
 
 class UnitConverter:
     def __init__(self):
-        self.conversions = {
-            # Base weight units
+        self.conversions: Dict[str, Dict[str, float]] = {
+            # Weight
             "کلو": {"کلو": 1.0, "گرام": 1000.0, "پاؤ": 4.0, "چھٹانک": 16.0, "سیر": 1.0, "من": 1/40.0, "بوری": 1/50.0},
             "گرام": {"گرام": 1.0, "کلو": 1/1000.0, "پاؤ": 1/250.0, "چھٹانک": 1/62.5, "سیر": 1/1000.0, "من": 1/40000.0, "بوری": 1/50000.0},
             "پاؤ": {"پاؤ": 1.0, "کلو": 0.25, "گرام": 250.0, "چھٹانک": 4.0, "سیر": 0.25, "من": 0.25/40.0, "بوری": 0.25/50.0},
@@ -25,26 +27,29 @@ class UnitConverter:
             "درجن": {"درجن": 1.0, "عدد": 12.0, "آدھا درجن": 0.5},
             "آدھا درجن": {"آدھا درجن": 1.0, "عدد": 6.0, "درجن": 0.5},
 
-            # Packages
+            # Package (same unit family)
             "پیکٹ": {"پیکٹ": 1.0, "ڈبہ": 1.0, "بوتل": 1.0},
             "ڈبہ": {"ڈبہ": 1.0, "پیکٹ": 1.0, "بوتل": 1.0},
             "بوتل": {"بوتل": 1.0, "پیکٹ": 1.0, "ڈبہ": 1.0},
         }
 
-    def normalize_unit(self, unit: str, quantity: float = 1.0):
+    def normalize_unit(self, unit: str, quantity: float = 1.0) -> Tuple[str, float]:
+        """Handle fractional prefixes like آدھا, ڈیڑھ, ڈھائی"""
         unit = unit.strip()
         for prefix, factor in FRACTIONAL_PREFIXES.items():
             if unit.startswith(prefix):
-                base_unit = unit.replace(prefix, "").strip()
+                base_unit = unit[len(prefix):].strip()
                 return base_unit, quantity * factor
         return unit, quantity
 
     def convert(self, from_unit: str, to_unit: str, value: float) -> float:
+        """Convert quantity from one unit to another"""
         from_unit, value = self.normalize_unit(from_unit, value)
         to_unit = to_unit.strip()
 
         if from_unit not in self.conversions:
             raise ValueError(f"بنیادی اکائی نہیں ملی: {from_unit}")
+
         if to_unit not in self.conversions[from_unit]:
             raise ValueError(f"اس اکائی میں تبدیل نہیں ہو سکتا: {from_unit} → {to_unit}")
 
@@ -52,7 +57,10 @@ class UnitConverter:
         return value * factor
 
     def is_compatible(self, unit1: str, unit2: str) -> bool:
-        """Check if two units can be converted"""
+        """Check if two units belong to same category"""
         unit1, _ = self.normalize_unit(unit1)
         unit2, _ = self.normalize_unit(unit2)
-        return unit1 in self.conversions and unit2 in self.conversions[unit1]
+
+        if unit1 not in self.conversions:
+            return False
+        return unit2 in self.conversions[unit1]

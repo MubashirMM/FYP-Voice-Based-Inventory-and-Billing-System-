@@ -4,6 +4,7 @@ from datetime import date
 class UdharRead(BaseModel):
     udhar_id: int
     customer_id: int
+    customer_name: str   # ✅ include name
     subtotal: float
     direct_addition: float
     direct_deduction: float
@@ -12,7 +13,7 @@ class UdharRead(BaseModel):
     created_date: date | None
     paid_date: date | None
 
-    # Computed field for Urdu full date string
+    # Urdu formatted dates
     @computed_field
     @property
     def created_date_urdu(self) -> str:

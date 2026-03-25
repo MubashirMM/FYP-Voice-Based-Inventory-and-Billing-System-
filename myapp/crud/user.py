@@ -99,7 +99,11 @@ async def update_user_by_id(db: AsyncSession, user_id: int, update_data: Profile
 # Initiate Password Reset
 # ---------------------------
 async def initiate_password_reset(db: AsyncSession, email: str):
-    res = await db.execute(select(User).where(User.email == email))
+    email = email.strip().lower()
+
+    res = await db.execute(
+        select(User).where(User.email == email)
+    )
     user = res.scalar_one_or_none()
 
     if user:
@@ -110,14 +114,7 @@ async def initiate_password_reset(db: AsyncSession, email: str):
         user.password_reset_expiry = expiry
         await db.commit()
 
-        subject = "پاس ورڈ ری سیٹ کوڈ"
-        body = get_reset_template(code)
-
-        try:
-            send_email(email, subject, body)
-            return code
-        except Exception as e:
-            print(f"Failed to send reset email: {e}")
+        return code
 
     return None
 
