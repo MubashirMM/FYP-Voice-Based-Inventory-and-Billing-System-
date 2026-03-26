@@ -12,6 +12,8 @@ from myapp.crud.bill import (
     pay_bill_by_customer_name,
     delete_bill
 )
+
+from myapp.crud.udhar import get_customer_by_name
 from myapp.models.bill import Bill
 from myapp.models.customer import Customer
 from myapp.models.user import User
@@ -78,17 +80,25 @@ async def get_all_bills_endpoint(
 # =========================
 # PAY BILL BY CUSTOMER ID
 # =========================
-@router.put("/customer/{customer_id}/pay", response_model=BillRead)
-async def pay_customer_bill(
-    customer_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    bill = await pay_bill(db, customer_id, current_user)
-    if not bill:
-        raise HTTPException(status_code=404, detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں")
-    return bill
+# @router.put("/customer/pay", response_model=BillRead)
+# async def pay_customer_bill(
+#     customer_name: str,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user)
+# ):
+#     # Get customer by name
+#     customer = await get_customer_by_name(db, customer_name, current_user)
 
+#     # Pay bill using existing logic
+#     bill = await pay_bill(db, customer.customer_id, current_user)
+
+#     if not bill:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں"
+#         )
+
+#     return bill
 
 # =========================
 # PAY BILL BY CUSTOMER NAME

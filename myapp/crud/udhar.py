@@ -338,3 +338,62 @@ async def delete_udhar_by_id(db: AsyncSession, udhar_id: int, current_user: User
 
     await db.commit()
     return {"message": "اُدھار کامیابی سے حذف کر دیا گیا"}
+
+from myapp.crud.bill import pay_bill   # import this
+
+async def get_or_create_customer(
+    db: AsyncSession, 
+    name: str, 
+    current_user: User
+) -> Customer:
+    name = name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="کسٹمر کا نام خالی نہیں ہو سکتا")
+
+    res = await db.execute(
+        select(Customer).where(
+            Customer.customer_name == name,
+            Customer.user_id == current_user.user_id
+        )
+    )
+    customer = res.scalar_one_or_none()
+
+    if not customer:
+        customer = Customer(
+            customer_name=name,
+            user_id=current_user.user_id
+        )
+        db.add(customer)
+        await db.flush()
+
+    return customer
+
+# =========================
+# PAY UDHAAR (NEW)
+# =========================
+async def pay_udhaar_by_customer_name(
+    db: AsyncSession,
+    customer_name: str,
+    current_user: User
+):
+    # Get customer
+    customer = await get_or_create_customer(db, customer_name, current_user)
+
+    # Call existing bill payment logic
+    bill = await pay_bill(db, customer.customer_id, current_user)
+
+    if not bill:
+        raise HTTPException(
+            status_code=404,
+            detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں"
+        )
+
+    return {
+        "message": "ادھار اور بل کامیابی سے ادا کر دیا گیا",
+        "customer_id": customer.customer_id,
+        "customer_name": customer.customer_name,
+        "bill_id": bill.bill_id,
+        "status": bill.status,
+        "effective_total": float(getattr(bill, "effective_total", 0)),
+        "paid_on": f"{bill.bill_day_name} {bill.bill_day}/{bill.bill_month}/{bill.bill_year}"
+    }

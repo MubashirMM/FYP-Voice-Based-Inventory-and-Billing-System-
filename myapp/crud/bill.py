@@ -217,10 +217,31 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User):
 
 async def pay_bill_by_customer_name(db: AsyncSession, customer_name: str, current_user: User):
     customer = await get_customer_by_name(db, customer_name, current_user)
+
+    # 🔴 NEW CHECK: see if unpaid udhar exists
+    res = await db.execute(
+        select(Udhar).where(
+            Udhar.customer_id == customer.customer_id,
+            Udhar.user_id == current_user.user_id,
+            Udhar.status == "unpaid"
+        )
+    )
+    udhar = res.scalar_one_or_none()
+
+    if not udhar:
+        raise HTTPException(
+            status_code=400,
+            detail="یہ ادھار پہلے ہی ادا ہو چکا ہے"
+        )
+
+    # ✅ Continue normal flow
     bill = await pay_bill(db, customer.customer_id, current_user)
 
     if not bill:
-        raise HTTPException(status_code=404, detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں")
+        raise HTTPException(
+            status_code=404,
+            detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں"
+        )
 
     return {
         "message": "بل کامیابی سے ادا کر دیا گیا",

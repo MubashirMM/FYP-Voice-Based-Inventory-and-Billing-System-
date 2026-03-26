@@ -9,7 +9,8 @@ from myapp.crud.udhar import (
     update_direct_addition,
     update_direct_deduction,
     update_udhar_summary_by_name,
-    delete_udhar_by_id
+    delete_udhar_by_id,
+    pay_udhaar_by_customer_name
 )
 
 from myapp.utils.security import get_current_user
@@ -18,6 +19,13 @@ from myapp.models.user import User
 
 router = APIRouter(prefix="/udhars", tags=["udhars"])
 
+@router.post("/pay")
+async def pay_udhaar(
+    customer_name: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    return await pay_udhaar_by_customer_name(db, customer_name, current_user)
 
 # =========================
 # GET ALL
