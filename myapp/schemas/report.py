@@ -1,40 +1,46 @@
-# schemas/report.py
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 
+# =========================
+# GENERATE REQUEST (NO INPUT)
+# =========================
 class ReportGenerateRequest(BaseModel):
-    """Request schema for generating a sales report"""
-    item_name: str
-    filters_applied: Optional[str] = None
+    pass
 
 
+# =========================
+# BASE
+# =========================
 class ReportBase(BaseModel):
-    user_id: int
-    item_name: str
-    filters_applied: Optional[str] = None
+    title: str
+    kpi_summary: Dict[str, Any]
 
 
+# =========================
+# CREATE
+# =========================
 class ReportCreate(ReportBase):
     pass
 
 
+# =========================
+# RESPONSE
+# =========================
 class ReportResponse(BaseModel):
-    """Response schema for report"""
     report_id: int
-    user_id: int
-    item_name: str
-    filters_applied: Optional[str] = None
-    kpi_summary: Optional[str] = None
-    charts_paths: Optional[str] = None
+    title: str
+    kpi_summary: Dict[str, Any]
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
+# =========================
+# OPTIONAL (IF YOU LIST)
+# =========================
 class ReportListResponse(BaseModel):
-    """Response schema for listing reports"""
     reports: List[ReportResponse]
     total: int

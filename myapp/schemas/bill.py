@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 from datetime import date
-from typing import List,Optional
+from typing import List, Optional
 
 
 class BillItemHistoryRead(BaseModel):
@@ -10,12 +10,13 @@ class BillItemHistoryRead(BaseModel):
     requested_unit: str
     total_amount: float
 
-
     model_config = ConfigDict(from_attributes=True)
+
 
 class BillRead(BaseModel):
     bill_id: int
-    customer_id: Optional[int]
+    customer_id: Optional[int] = None
+    customer_name: Optional[str] = None          # ← NEW FIELD
     udhar_items_total: float
     direct_addition: float
     direct_deduction: float
@@ -28,6 +29,5 @@ class BillRead(BaseModel):
     bill_time: str
     bill_day_name: str
     items: List[BillItemHistoryRead]
-
 
     model_config = ConfigDict(from_attributes=True)

@@ -63,7 +63,6 @@ async def update_udhar_summary(db: AsyncSession, customer_id: int, current_user:
         await db.flush()
 
     # recalc totals
-    # udhar.subtotal = sum(float(item.total_amount) for item in items)
     udhar.subtotal = sum(float(item.total_amount) for item in items if not isinstance(item, dict))
     udhar.total = udhar.subtotal + udhar.direct_addition - udhar.direct_deduction
     udhar.status = "paid" if udhar.total == 0 else "unpaid"

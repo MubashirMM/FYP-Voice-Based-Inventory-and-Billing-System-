@@ -34,7 +34,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession
         if user_id is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="کریڈینشل درست نہیں ہیں")
     except JWTError:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="کریڈینشل درست نہیں ہیں")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="آپ کا سیشن ختم ہو چکا ہے۔ براہ مہربانی دوبارہ لاگ ان کریں")
 
     stmt = select(User).where(User.user_id == int(user_id))
     result = await db.execute(stmt)

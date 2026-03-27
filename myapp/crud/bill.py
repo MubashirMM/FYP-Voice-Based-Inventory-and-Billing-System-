@@ -139,15 +139,9 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
 # =========================
 # GET BILLS
 # =========================
-async def get_bills_by_customer(db: AsyncSession, customer_id: int, current_user: User):
-    res = await db.execute(
-        select(Bill)
-        .options(selectinload(Bill.items))
-        .where(Bill.customer_id == customer_id, Bill.user_id == current_user.user_id)
-    )
-    return res.scalars().all()
-
-
+# =========================
+# GET ALL BILLS (with customer name - no relationship needed)
+# =========================
 async def get_all_bills(db: AsyncSession, current_user: User, status: str | None = None):
     query = select(Bill).options(selectinload(Bill.items)).where(Bill.user_id == current_user.user_id)
 
@@ -157,8 +151,66 @@ async def get_all_bills(db: AsyncSession, current_user: User, status: str | None
         query = query.where(Bill.status == "unpaid")
 
     res = await db.execute(query)
-    return res.scalars().all()
+    bills = res.scalars().all()
 
+    formatted = []
+    for bill in bills:
+        customer_name = "نقد"
+        if bill.customer_id:
+            # Manual lookup from Customer table
+            cust_res = await db.execute(
+                select(Customer.customer_name).where(
+                    Customer.customer_id == bill.customer_id,
+                    Customer.user_id == current_user.user_id
+                )
+            )
+            cust = cust_res.scalar_one_or_none()
+            if cust:
+                customer_name = cust
+
+        formatted.append({
+            **{c.name: getattr(bill, c.name) for c in Bill.__table__.columns},
+            "customer_name": customer_name,
+            "items": bill.items
+        })
+    return formatted
+
+
+# =========================
+# GET BILLS BY CUSTOMER
+# =========================
+async def get_bills_by_customer(db: AsyncSession, customer_id: int, current_user: User):
+    res = await db.execute(
+        select(Bill)
+        .options(selectinload(Bill.items))
+        .where(
+            Bill.customer_id == customer_id,
+            Bill.user_id == current_user.user_id
+        )
+    )
+    bills = res.scalars().all()
+
+    # Get customer name once (since all bills belong to same customer)
+    customer_name = "نقد"
+    if customer_id:
+        cust_res = await db.execute(
+            select(Customer.customer_name).where(
+                Customer.customer_id == customer_id,
+                Customer.user_id == current_user.user_id
+            )
+        )
+        cust = cust_res.scalar_one_or_none()
+        if cust:
+            customer_name = cust
+
+    formatted = []
+    for bill in bills:
+        formatted.append({
+            **{c.name: getattr(bill, c.name) for c in Bill.__table__.columns},
+            "customer_name": customer_name,
+            "items": bill.items
+        })
+    return formatted
 
 # =========================
 # PAY BILL
