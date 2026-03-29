@@ -127,6 +127,7 @@ async def update_item(
 # ============================
 # DELETE ITEM
 # ============================
+
 @router.delete(
     "/{item_id}", 
     status_code=status.HTTP_200_OK,
