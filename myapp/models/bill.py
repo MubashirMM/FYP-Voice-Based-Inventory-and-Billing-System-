@@ -7,7 +7,7 @@ class Bill(Base):
     __tablename__ = "bills"
 
     bill_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.customer_id"), nullable=True,index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customer.customer_id"), nullable=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
 
     udhar_items_total: Mapped[float] = mapped_column(Float, default=0.0)
@@ -18,13 +18,15 @@ class Bill(Base):
     status: Mapped[str] = mapped_column(String(10), default="unpaid")
     bill_date: Mapped[date] = mapped_column(Date, default=date.today)
     
-    # Urdu date/time fields - Bill specific
+    # Urdu date/time fields
     bill_day: Mapped[str] = mapped_column(String(10), nullable=False, default="")
     bill_month: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     bill_year: Mapped[str] = mapped_column(String(10), nullable=False, default="")
     bill_time: Mapped[str] = mapped_column(String(15), nullable=False, default="")
     bill_day_name: Mapped[str] = mapped_column(String(15), nullable=False, default="")
 
+    # ✅ Add customer relationship
+    customer = relationship("Customer", back_populates="bills")
     items = relationship("BillItemHistory", back_populates="bill", cascade="all, delete-orphan")
     user = relationship("User", back_populates="bills")
-    billitems = relationship("BillItem", back_populates="bill", cascade="all, delete-orphan")
+    billitems = relationship("BillItem", back_populates="bill", cascade="all, delete-orphan")  

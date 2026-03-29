@@ -16,6 +16,8 @@ from myapp.api.shop import router as shop
 from myapp.api.report import router as report
 from myapp.api.forcasting import router as forcast
 from myapp.api.bill_item import router as bill_item
+from myapp.api.bill_item_history import router as bill_item_history
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -62,7 +64,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def custom_general_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "سرور کی خرابی", "detail": str(exc)})
 
-# Routers
 myapp.include_router(ai_router)
 myapp.include_router(user)
 myapp.include_router(shop) 
@@ -73,5 +74,6 @@ myapp.include_router(bill_item)
 myapp.include_router(sales)
 myapp.include_router(udhar)
 myapp.include_router(bill)
+myapp.include_router(bill_item_history)
 myapp.include_router(report)
 myapp.include_router(forcast)

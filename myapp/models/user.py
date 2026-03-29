@@ -34,6 +34,6 @@ class User(Base):
     shops = relationship("Shop", back_populates="user", cascade="all, delete-orphan")
     billitems = relationship("BillItem", back_populates="user", cascade="all, delete-orphan")
     reports: Mapped[list["Report"]] = relationship(
-    back_populates="user",
+    back_populates="user", 
     cascade="all, delete-orphan"
 )

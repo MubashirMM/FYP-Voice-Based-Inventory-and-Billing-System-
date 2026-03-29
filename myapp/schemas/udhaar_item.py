@@ -1,13 +1,14 @@
-from pydantic import BaseModel, Field, ConfigDict,field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from datetime import date
 from typing import Optional
 
 
 # =========================
-# User Input Schema (for API)
+# User Input Schema (API)
 # =========================
 class UdharCreateRequest(BaseModel):
     """Schema for creating Udhar item - accepts any unit"""
+
     customer_name: str
     item_name: str
     quantity: float = Field(gt=0, description="Quantity must be greater than 0")
@@ -20,23 +21,28 @@ class UdharCreateRequest(BaseModel):
             raise ValueError("مقدار صفر یا منفی نہیں ہو سکتی")
         return v
 
-    # NO unit validation here → Any unit is allowed
-    # Conversion check will be done in CRUD using UnitConverter
-
-    model_config = ConfigDict(str_to_lower=False)  # Preserve Urdu text as-is
+    model_config = ConfigDict(str_to_lower=False)
 
 
 # =========================
-# Internal DB Schema (Optional - if you use it)
+# Internal DB Schema
 # =========================
 class UdharCreateDB(BaseModel):
     """Internal schema for database layer"""
+
     customer_id: int
-    item_id: int
+
+    # ✅ OPTIONAL FK (item may be deleted)
+    item_id: Optional[int] = None
+
+    # ✅ SNAPSHOT (main source of truth)
+    item_name: str
+
     unit_price: float
-    quantity: float          # This will be in item's base unit
-    requested_unit: str      # Original unit entered by user
+    quantity: float              # stored in base unit
+    requested_unit: str          # user input unit
     total_amount: float
+
     created_date: date = Field(default_factory=date.today)
 
 
@@ -47,13 +53,19 @@ class UdharRead(BaseModel):
     udharitem_id: int
     customer_id: int
     customer_name: str
-    item_id: int
+
+    item_id: Optional[int]
     item_name: str
+
     unit_price: float
-    quantity: float          # This is in item's stored unit
-    requested_unit: str      # What user originally entered
+
+    quantity: float              # in base unit
+    base_unit: str               # ✅ NEW
+    requested_unit: str          # user input
+
     total_amount: float
     created_date: date
+
     udhar_day: str
     udhar_month: str
     udhar_year: str

@@ -129,3 +129,79 @@ def parse_user_date(date_str: str) -> date:
         except ValueError:
             continue
     raise ValueError("Invalid date format. Use YYYY-MM-DD or DD-MM-YYYY.")
+
+# Add this function at the end of your urdu_date.py file
+
+def get_urdu_date_components(date_obj) -> dict:
+    """
+    Return dictionary with keys: sale_day, sale_month, sale_year, sale_time, sale_day_name
+    This matches the format expected by sales CRUD
+    """
+    from datetime import datetime
+    
+    if date_obj is None:
+        return {
+            "sale_day": "",
+            "sale_month": "",
+            "sale_year": "",
+            "sale_time": datetime.now().strftime("%I:%M %p"),
+            "sale_day_name": ""
+        }
+    
+    # Use your existing convert_date_to_urdu function
+    parts = convert_date_to_urdu(date_obj, "sale")
+    
+    # Add current time
+    current_time = datetime.now().strftime("%I:%M %p")
+    # Convert to Urdu AM/PM if needed
+    period = "صبح" if datetime.now().hour < 12 else "شام"
+    hour = datetime.now().hour if datetime.now().hour <= 12 else datetime.now().hour - 12
+    if hour == 0:
+        hour = 12
+    time_str = f"{hour:02d}:{datetime.now().minute:02d} {period}"
+    
+    return {
+        "sale_day": parts.get("sale_day", ""),
+        "sale_month": parts.get("sale_month", ""),
+        "sale_year": parts.get("sale_year", ""),
+        "sale_time": time_str,
+        "sale_day_name": parts.get("sale_day_name", "")
+    }
+
+# Add this function at the end of your urdu_date.py file
+
+def get_urdu_date_components(date_obj) -> dict:
+    """
+    Return dictionary with keys: sale_day, sale_month, sale_year, sale_time, sale_day_name
+    This matches the format expected by sales CRUD
+    """
+    from datetime import datetime
+    
+    if date_obj is None:
+        return {
+            "sale_day": "",
+            "sale_month": "",
+            "sale_year": "",
+            "sale_time": datetime.now().strftime("%I:%M %p"),
+            "sale_day_name": ""
+        }
+    
+    # Use your existing convert_date_to_urdu function
+    parts = convert_date_to_urdu(date_obj, "sale")
+    
+    # Add current time
+    current_time = datetime.now().strftime("%I:%M %p")
+    # Convert to Urdu AM/PM if needed
+    period = "صبح" if datetime.now().hour < 12 else "شام"
+    hour = datetime.now().hour if datetime.now().hour <= 12 else datetime.now().hour - 12
+    if hour == 0:
+        hour = 12
+    time_str = f"{hour:02d}:{datetime.now().minute:02d} {period}"
+    
+    return {
+        "sale_day": parts.get("sale_day", ""),
+        "sale_month": parts.get("sale_month", ""),
+        "sale_year": parts.get("sale_year", ""),
+        "sale_time": time_str,
+        "sale_day_name": parts.get("sale_day_name", "")
+    }

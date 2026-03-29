@@ -8,12 +8,10 @@ from myapp.schemas.bill import BillRead
 from myapp.crud.bill import (
     get_bills_by_customer,
     get_all_bills,
-    pay_bill,
     pay_bill_by_customer_name,
     delete_bill
 )
 
-from myapp.crud.udhar import get_customer_by_name
 from myapp.models.bill import Bill
 from myapp.models.customer import Customer
 from myapp.models.user import User
@@ -32,8 +30,10 @@ async def bill_history_by_id(
     current_user: User = Depends(get_current_user)
 ):
     bills = await get_bills_by_customer(db, customer_id, current_user)
+
     if not bills:
         raise HTTPException(status_code=404, detail="اس گاہک کا کوئی بل موجود نہیں ہے")
+
     return bills
 
 
@@ -53,55 +53,37 @@ async def bill_history_by_name(
         )
     )
     customer = res.scalar_one_or_none()
+
     if not customer:
         raise HTTPException(status_code=404, detail="کسٹمر موجود نہیں ہے")
 
     bills = await get_bills_by_customer(db, customer.customer_id, current_user)
+
     if not bills:
         raise HTTPException(status_code=404, detail="اس گاہک کا کوئی بل موجود نہیں ہے")
+
     return bills
 
 
 # =========================
-# GET ALL BILLS (with paid/unpaid filter)
+# GET ALL BILLS
 # =========================
 @router.get("/", response_model=list[BillRead])
 async def get_all_bills_endpoint(
-    status: str | None = None,  # paid, unpaid or None
+    status: str | None = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     bills = await get_all_bills(db, current_user, status)
+
     if not bills:
         raise HTTPException(status_code=404, detail="کوئی بل موجود نہیں ہے")
+
     return bills
 
 
 # =========================
-# PAY BILL BY CUSTOMER ID
-# =========================
-# @router.put("/customer/pay", response_model=BillRead)
-# async def pay_customer_bill(
-#     customer_name: str,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     # Get customer by name
-#     customer = await get_customer_by_name(db, customer_name, current_user)
-
-#     # Pay bill using existing logic
-#     bill = await pay_bill(db, customer.customer_id, current_user)
-
-#     if not bill:
-#         raise HTTPException(
-#             status_code=404,
-#             detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں"
-#         )
-
-#     return bill
-
-# =========================
-# PAY BILL BY CUSTOMER NAME
+# PAY BILL
 # =========================
 @router.put("/pay/{customer_name}")
 async def pay_bill_by_name(
@@ -122,15 +104,18 @@ async def delete_bill_endpoint(
     current_user: User = Depends(get_current_user)
 ):
     result = await delete_bill(db, bill_id, current_user)
+
     if result == "unpaid":
         raise HTTPException(status_code=400, detail="بل ادا نہیں ہوا۔ پہلے ادا کریں۔")
+
     if not result:
         raise HTTPException(status_code=404, detail="بل نہیں ملا")
+
     return {"پیغام": f"بل {bill_id} کامیابی سے حذف کر دیا گیا"}
 
 
 # =========================
-# SEARCH BILLS BY CUSTOMER NAME
+# SEARCH BILLS (FIXED)
 # =========================
 @router.get("/search/", response_model=list[BillRead])
 async def search_bills(
@@ -138,17 +123,30 @@ async def search_bills(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    keyword = keyword.strip()
+
+    if not keyword:
+        raise HTTPException(status_code=400, detail="سرچ کی ورڈ درکار ہے")
+
+    # 🔹 get matching customers
     res = await db.execute(
-        select(Bill)
-        .options(selectinload(Bill.items))
-        .join(Customer)
-        .where(
-            Customer.customer_name.ilike(f"%{keyword.strip()}%"),
-            Bill.user_id == current_user.user_id
+        select(Customer.customer_id).where(
+            Customer.customer_name.ilike(f"%{keyword}%"),
+            Customer.user_id == current_user.user_id
         )
     )
-    bills = res.scalars().all()
+    customer_ids = [c for c in res.scalars().all()]
+
+    if not customer_ids:
+        raise HTTPException(status_code=404, detail="کوئی مماثل بل نہیں ملا")
+
+    # 🔹 use your main formatter function (IMPORTANT)
+    bills = []
+    for cid in customer_ids:
+        data = await get_bills_by_customer(db, cid, current_user)
+        bills.extend(data)
 
     if not bills:
         raise HTTPException(status_code=404, detail="کوئی مماثل بل نہیں ملا")
+
     return bills

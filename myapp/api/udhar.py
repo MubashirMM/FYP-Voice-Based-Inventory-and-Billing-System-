@@ -16,9 +16,12 @@ from myapp.crud.udhar import (
 from myapp.utils.security import get_current_user
 from myapp.models.user import User
 
-
 router = APIRouter(prefix="/udhars", tags=["udhars"])
 
+
+# =========================
+# PAY UDHAAR
+# =========================
 @router.post("/pay")
 async def pay_udhaar(
     customer_name: str,
@@ -26,6 +29,7 @@ async def pay_udhaar(
     current_user: User = Depends(get_current_user)
 ):
     return await pay_udhaar_by_customer_name(db, customer_name, current_user)
+
 
 # =========================
 # GET ALL
@@ -50,7 +54,10 @@ async def get_udhar_for_customer(
     udhar = await get_udhar_by_customer(db, customer_name, current_user)
 
     if not udhar:
-        raise HTTPException(status_code=404, detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے")
+        raise HTTPException(
+            status_code=404,
+            detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے"
+        )
 
     return udhar
 
@@ -63,9 +70,11 @@ async def set_direct_addition(
     customer_name: str,
     amount: float,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user) 
+    current_user: User = Depends(get_current_user)
 ):
-    udhar = await update_direct_addition(db, customer_name, amount, current_user)
+    udhar = await update_direct_addition(
+        db, customer_name, amount, current_user
+    )
 
     return {
         "message": f"براہ راست جمع: {amount} روپے شامل کر دیے گئے",
@@ -74,7 +83,7 @@ async def set_direct_addition(
         "direct_deduction": udhar.direct_deduction,
         "total": udhar.total,
         "status": udhar.status,
-        "udhar": UdharRead.model_validate(udhar)
+        "udhar": udhar   # ✅ FIX: already validated in CRUD
     }
 
 
@@ -88,7 +97,9 @@ async def set_direct_deduction(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    udhar = await update_direct_deduction(db, customer_name, amount, current_user)
+    udhar = await update_direct_deduction(
+        db, customer_name, amount, current_user
+    )
 
     return {
         "message": f"براہ راست کٹوتی: {amount} روپے شامل کر دی گئی",
@@ -97,12 +108,12 @@ async def set_direct_deduction(
         "direct_deduction": udhar.direct_deduction,
         "total": udhar.total,
         "status": udhar.status,
-        "udhar": UdharRead.model_validate(udhar)
+        "udhar": udhar   # ✅ FIX: already validated
     }
 
 
 # =========================
-# SUMMARY (UPDATED)
+# SUMMARY (FORCE SYNC)
 # =========================
 @router.get("/{customer_name}/summary")
 async def get_udhar_summary(
@@ -110,10 +121,16 @@ async def get_udhar_summary(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    udhar = await update_udhar_summary_by_name(db, customer_name, current_user)
+    # ✅ This already recalculates + syncs bill
+    udhar = await update_udhar_summary_by_name(
+        db, customer_name, current_user
+    )
 
     if not udhar:
-        raise HTTPException(status_code=404, detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے")
+        raise HTTPException(
+            status_code=404,
+            detail="اس گاہک کا کوئی اُدھار موجود نہیں ہے"
+        )
 
     return {
         "subtotal": udhar.subtotal,
@@ -133,4 +150,6 @@ async def delete_udhar_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return await delete_udhar_by_id(db, udhar_id, current_user)
+    return await delete_udhar_by_id(
+        db, udhar_id, current_user
+    )

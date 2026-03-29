@@ -2,18 +2,17 @@ from pydantic import BaseModel, ConfigDict
 from datetime import date
 from typing import List
 
-
 class BillItemHistoryRead(BaseModel):
+    history_id: int
+    bill_id: int
+
     item_name: str
     unit_price: float
     quantity: float
     requested_unit: str
     total_amount: float
 
-
     model_config = ConfigDict(from_attributes=True)
-
-
 
 
 class BillRead(BaseModel):
@@ -26,6 +25,5 @@ class BillRead(BaseModel):
     status: str
     bill_date: date
     items: List[BillItemHistoryRead]
-
 
     model_config = ConfigDict(from_attributes=True)

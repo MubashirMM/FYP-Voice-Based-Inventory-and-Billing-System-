@@ -1,6 +1,7 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+from myapp.models import *
 
 # Import your models here
 from myapp.database.session import Base  # adjust path to your models

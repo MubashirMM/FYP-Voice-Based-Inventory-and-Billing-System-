@@ -10,80 +10,112 @@ from myapp.models.bill import Bill
 from myapp.models.item import Item
 from myapp.models.sales import Sale
 from myapp.models.user import User
+from myapp.models.bill_item_history import BillItemHistory
 
 from myapp.utils.units import UnitConverter
 from myapp.utils.urdu_date import convert_datetime_to_urdu
-from myapp.models.bill_item_history import BillItemHistory
-# Global converter
+
+# =========================
+# GLOBAL
+# =========================
 converter = UnitConverter()
 
- 
+
+# =========================
+# FORMAT RESPONSE
+# =========================
+def format_bill_item(i: BillItem):
+    return {
+        "billitem_id": i.billitem_id,
+        "bill_id": i.bill_id,
+        "item_id": i.item_id,
+        "item_name": i.item_name,
+
+        # ✅ IMPORTANT
+        "item_unit": i.item_unit,          # base unit
+        "requested_unit": i.requested_unit,  # user entered
+
+        "quantity": float(i.quantity),
+        "unit_price": float(i.unit_price),
+        "total_amount": float(i.total_amount),
+
+        "created_date": i.created_date,
+
+        "billitem_day": i.billitem_day,
+        "billitem_month": i.billitem_month,
+        "billitem_year": i.billitem_year,
+        "billitem_time": i.billitem_time,
+        "billitem_day_name": i.billitem_day_name,
+    }
+
+
 # =========================
 # CREATE BILL ITEM
 # =========================
+async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
 
-
-# from decimal import Decimal
-# from datetime import date, datetime
-# from sqlalchemy import select
-# from sqlalchemy.ext.asyncio import AsyncSession
-# from fastapi import HTTPException
-# from myapp.models import Item, Bill, BillItem, BillItemHistory, Sale
-# from myapp.utils.converter import converter
-# from myapp.utils.datetime_urdu import convert_datetime_to_urdu
-
-
-async def create_bill_item(db: AsyncSession, data: dict, current_user):
-    """
-    Create a new bill for a direct item sale.
-
-    Adds the item to BillItem and BillItemHistory,
-    updates the bill's effective total, and updates item stock.
-    """
-    # 1️⃣ Fetch item
+    # 🔍 check item exists
     res = await db.execute(
-        select(Item).where(Item.item_name == data["item_name"], Item.user_id == current_user.user_id)
+        select(Item).where(
+            Item.item_name == data["item_name"],
+            Item.user_id == current_user.user_id
+        )
     )
     item = res.scalar_one_or_none()
+
     if not item:
         raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
 
     requested_unit = str(data.get("requested_unit", "")).strip()
     if not requested_unit:
-        raise HTTPException(status_code=400, detail="اکائی درج کرنا ضروری ہے")
+        raise HTTPException(status_code=400, detail="اکائی ضروری ہے")
 
     item_unit = str(item.item_unit).strip()
-    # 2️⃣ Convert quantity if needed
+
+    # ================= UNIT LOGIC =================
     if requested_unit == item_unit:
-        qty_in_base = float(data["quantity"])
+        qty_base = float(data["quantity"])
     else:
         if not converter.is_compatible(requested_unit, item_unit):
             raise HTTPException(
                 status_code=400,
-                detail=f"اکائی '{requested_unit}' آئٹم کی اکائی '{item_unit}' کے ساتھ مطابقت نہیں رکھتی"
+                detail=f"'{requested_unit}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا (kg → dozen allowed نہیں)"
             )
-        qty_in_base = converter.convert(from_unit=requested_unit, to_unit=item_unit, value=float(data["quantity"]))
+        try:
+            qty_base = converter.convert(
+                from_unit=requested_unit,
+                to_unit=item_unit,
+                value=float(data["quantity"])
+            )
+        except Exception:
+            raise HTTPException(status_code=400, detail="یونٹ تبدیل نہیں ہو سکتا")
 
-    # 3️⃣ Check stock
-    if qty_in_base > float(item.stock_quantity):
+    # ================= STOCK CHECK =================
+    if qty_base > float(item.stock_quantity):
         raise HTTPException(
             status_code=400,
-            detail=f"ذخیرہ ناکافی ہے۔ موجودہ: {item.stock_quantity} {item_unit}"
+            detail=f"سٹاک کم ہے ({item.stock_quantity} {item_unit})"
         )
 
-    total_amount = Decimal(str(qty_in_base)) * Decimal(str(item.unit_price))
+    # ================= TOTAL =================
+    total_amount = Decimal(str(qty_base)) * Decimal(str(item.unit_price))
 
+    # ================= DATE =================
     now = datetime.now()
     urdu_bill = convert_datetime_to_urdu(now, prefix="bill")
-    urdu_billitem = convert_datetime_to_urdu(now, prefix="billitem")
+    urdu_item = convert_datetime_to_urdu(now, prefix="billitem")
     urdu_sale = convert_datetime_to_urdu(now, prefix="sale")
 
-    # 4️⃣ Create Bill
+    # ================= BILL =================
     bill = Bill(
         customer_id=None,
         user_id=current_user.user_id,
-        effective_total=0.0,  # will update after items added
+        udhar_items_total=0.0,
+        direct_addition=0.0,
+        direct_deduction=0.0,
+        effective_total=float(total_amount),
         status="paid",
+        bill_date=date.today(),
         bill_day=urdu_bill["bill_day"],
         bill_month=urdu_bill["bill_month"],
         bill_year=urdu_bill["bill_year"],
@@ -91,28 +123,36 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user):
         bill_day_name=urdu_bill["bill_day_name"]
     )
     db.add(bill)
-    await db.flush()  # flush to get bill_id
+    await db.flush()
 
-    # 5️⃣ Add BillItem
+    # ================= BILL ITEM =================
     bill_item = BillItem(
         bill_id=bill.bill_id,
+
+        # FK (optional)
         item_id=item.item_id,
+
+        # ✅ SNAPSHOT (IMPORTANT)
+        item_name=item.item_name,
+        item_unit=item.item_unit,
+
         unit_price=float(item.unit_price),
-        quantity=float(data["quantity"]),
+        quantity=float(data["quantity"]),  # user entered
         requested_unit=requested_unit,
         total_amount=float(total_amount),
+
         created_date=date.today(),
         user_id=current_user.user_id,
-        billitem_day=urdu_billitem["billitem_day"],
-        billitem_month=urdu_billitem["billitem_month"],
-        billitem_year=urdu_billitem["billitem_year"],
-        billitem_time=urdu_billitem["billitem_time"],
-        billitem_day_name=urdu_billitem["billitem_day_name"]
+
+        billitem_day=urdu_item["billitem_day"],
+        billitem_month=urdu_item["billitem_month"],
+        billitem_year=urdu_item["billitem_year"],
+        billitem_time=urdu_item["billitem_time"],
+        billitem_day_name=urdu_item["billitem_day_name"]
     )
     db.add(bill_item)
-    await db.flush()  # ensure item exists in session
 
-    # 6️⃣ Add to BillItemHistory
+    # ================= HISTORY =================
     db.add(BillItemHistory(
         bill_id=bill.bill_id,
         user_id=current_user.user_id,
@@ -123,11 +163,15 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user):
         total_amount=float(total_amount),
     ))
 
-    # 7️⃣ Add sale record
+    # ================= SALE =================
+    # ✅ FIXED: Added item_name, unit_price, and item_unit
     db.add(Sale(
         customer_name="نقد",
         item_id=item.item_id,
+        item_name=item.item_name,  # ✅ CRITICAL: Added item_name
         quantity_sold=float(data["quantity"]),
+        unit_price=float(item.unit_price),  # ✅ Added unit_price
+        item_unit=requested_unit,  # ✅ Added item_unit (the unit user entered)
         sale_date=date.today(),
         user_id=current_user.user_id,
         sale_day=urdu_sale["sale_day"],
@@ -137,223 +181,84 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user):
         sale_day_name=urdu_sale["sale_day_name"]
     ))
 
-    # 8️⃣ Deduct stock
-    item.stock_quantity = float(item.stock_quantity) - qty_in_base
+    # ================= STOCK UPDATE =================
+    item.stock_quantity -= qty_base
 
-    # 9️⃣ Update bill effective total and status
-    res = await db.execute(
-        select(BillItem).where(BillItem.bill_id == bill.bill_id, BillItem.user_id == current_user.user_id)
-    )
-    all_items = res.scalars().all()
-    bill.effective_total = sum(float(i.total_amount) for i in all_items)
-    bill.status = "paid" if bill.effective_total == 0 else "paid"  # direct bill always paid
-
-    # 10️⃣ Commit everything
     await db.commit()
-    await db.refresh(bill)
     await db.refresh(bill_item)
 
-    # ✅ Return bill with items populated
-    bill_dict = {
-        **{c.name: getattr(bill, c.name) for c in Bill.__table__.columns},
-        "items": all_items
-    }
-    return bill_dict
-
-# async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
-#     res = await db.execute(
-#         select(Item).where(
-#             Item.item_name == data["item_name"],
-#             Item.user_id == current_user.user_id
-#         )
-#     )
-#     item = res.scalar_one_or_none()
-#     if not item:
-#         raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
-
-#     requested_unit = str(data.get("requested_unit", "")).strip()
-#     if not requested_unit:
-#         raise HTTPException(status_code=400, detail="اکائی درج کرنا ضروری ہے")
-
-#     item_unit = str(item.item_unit).strip()
-
-#     if requested_unit == item_unit:
-#         qty_in_base = float(data["quantity"])
-#     else:
-#         if not converter.is_compatible(requested_unit, item_unit):
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"اکائی '{requested_unit}' آئٹم کی اکائی '{item_unit}' کے ساتھ مطابقت نہیں رکھتی"
-#             )
-#         try:
-#             qty_in_base = converter.convert(
-#                 from_unit=requested_unit,
-#                 to_unit=item_unit,
-#                 value=float(data["quantity"])
-#             )
-#         except ValueError as e:
-#             raise HTTPException(
-#                 status_code=400,
-#                 detail=f"یونٹ تبدیل نہیں ہو سکتا: {str(e)}"
-#             )
-
-#     if qty_in_base > float(item.stock_quantity):
-#         raise HTTPException(
-#             status_code=400,
-#             detail=f"ذخیرہ ناکافی ہے۔ موجودہ: {item.stock_quantity} {item_unit}"
-#         )
-
-#     total_amount = Decimal(str(qty_in_base)) * Decimal(str(item.unit_price))
-
-#     now = datetime.now()
-#     urdu_bill = convert_datetime_to_urdu(now, prefix="bill")
-#     urdu_billitem = convert_datetime_to_urdu(now, prefix="billitem")
-#     urdu_sale = convert_datetime_to_urdu(now, prefix="sale")
-
-#     bill = Bill(
-#         customer_id=None,
-#         user_id=current_user.user_id,
-#         effective_total=float(total_amount),
-#         status="paid",
-#         bill_day=urdu_bill["bill_day"],
-#         bill_month=urdu_bill["bill_month"],
-#         bill_year=urdu_bill["bill_year"],
-#         bill_time=urdu_bill["bill_time"],
-#         bill_day_name=urdu_bill["bill_day_name"]
-#     )
-#     db.add(bill)
-#     await db.flush()
-
-#     bill_item = BillItem(
-#         bill_id=bill.bill_id,
-#         item_id=item.item_id,
-#         unit_price=float(item.unit_price),
-#         quantity=float(data["quantity"]),
-#         requested_unit=requested_unit,
-#         total_amount=float(total_amount),
-#         created_date=date.today(),
-#         user_id=current_user.user_id,
-#         billitem_day=urdu_billitem["billitem_day"],
-#         billitem_month=urdu_billitem["billitem_month"],
-#         billitem_year=urdu_billitem["billitem_year"],
-#         billitem_time=urdu_billitem["billitem_time"],
-#         billitem_day_name=urdu_billitem["billitem_day_name"]
-#     )
-#     db.add(bill_item)
-
-#     # ✅ NEW: Add to history
-#     db.add(BillItemHistory(
-#         bill_id=bill.bill_id,
-#         user_id=current_user.user_id,
-#         item_name=item.item_name,
-#         unit_price=float(item.unit_price),
-#         quantity=float(data["quantity"]),
-#         requested_unit=requested_unit,
-#         total_amount=float(total_amount),
-#     ))
-
-#     sale = Sale(
-#         customer_name="نقد",
-#         item_id=item.item_id,
-#         quantity_sold=float(data["quantity"]),
-#         sale_date=date.today(),
-#         user_id=current_user.user_id,
-#         sale_day=urdu_sale["sale_day"],
-#         sale_month=urdu_sale["sale_month"],
-#         sale_year=urdu_sale["sale_year"],
-#         sale_time=urdu_sale["sale_time"],
-#         sale_day_name=urdu_sale["sale_day_name"]
-#     )
-#     db.add(sale)
-
-#     item.stock_quantity = float(item.stock_quantity) - qty_in_base
-
-#     # ✅ NEW: recalc bill total
-#     res = await db.execute(
-#         select(BillItem).where(
-#             BillItem.bill_id == bill.bill_id,
-#             BillItem.user_id == current_user.user_id
-#         )
-#     )
-#     all_items = res.scalars().all()
-#     bill.effective_total = sum(float(i.total_amount) for i in all_items)
-
-#     await db.commit()
-#     await db.refresh(bill_item)
-#     return bill_item
+    return format_bill_item(bill_item)
 
 # =========================
-# LIST ALL BILL ITEMS
+# LIST
 # =========================
 async def list_bill_items(db: AsyncSession, current_user: User):
     res = await db.execute(
-        select(BillItem)
-        .where(BillItem.user_id == current_user.user_id)
+        select(BillItem).where(BillItem.user_id == current_user.user_id)
     )
-    return res.scalars().all()
+    return [format_bill_item(i) for i in res.scalars().all()]
 
 
 # =========================
-# GET SINGLE BILL ITEM BY ID
+# GET ONE
 # =========================
 async def get_bill_item_by_id(db: AsyncSession, billitem_id: int, current_user: User):
     res = await db.execute(
-        select(BillItem)
-        .where(
+        select(BillItem).where(
             BillItem.billitem_id == billitem_id,
             BillItem.user_id == current_user.user_id
         )
     )
     item = res.scalar_one_or_none()
+
     if not item:
         raise HTTPException(status_code=404, detail="بل آئٹم نہیں ملا")
-    return item
+
+    return format_bill_item(item)
 
 
 # =========================
-# DELETE BILL ITEM
+# DELETE
 # =========================
 async def delete_bill_item(db: AsyncSession, billitem_id: int, current_user: User):
+
     res = await db.execute(
-        select(BillItem)
-        .where(
+        select(BillItem).where(
             BillItem.billitem_id == billitem_id,
             BillItem.user_id == current_user.user_id
         )
     )
     bill_item = res.scalar_one_or_none()
+
     if not bill_item:
         raise HTTPException(status_code=404, detail="بل آئٹم نہیں ملا")
 
-    # Restore stock
-    item_res = await db.execute(
-        select(Item).where(Item.item_id == bill_item.item_id)
-    )
-    item = item_res.scalar_one_or_none()
-    if item:
-        item.stock_quantity += float(bill_item.quantity)   # restore original requested quantity
-
-    # Delete bill item
-    await db.execute(
-        delete(BillItem).where(
-            BillItem.billitem_id == billitem_id,
-            BillItem.user_id == current_user.user_id
+    # restore stock ONLY if item exists
+    if bill_item.item_id:
+        res_item = await db.execute(
+            select(Item).where(Item.item_id == bill_item.item_id)
         )
+        item = res_item.scalar_one_or_none()
+        if item:
+            item.stock_quantity += float(bill_item.quantity)
+
+    await db.execute(
+        delete(BillItem).where(BillItem.billitem_id == billitem_id)
     )
 
     await db.commit()
-    return {"message": "بل آئٹم کامیابی سے حذف کر دیا گیا"}
+
+    return {"message": "بل آئٹم حذف ہو گیا"}
 
 
 # =========================
-# SEARCH BILL ITEMS
+# SEARCH
 # =========================
 async def search_bill_items(db: AsyncSession, keyword: str, current_user: User):
     res = await db.execute(
-        select(BillItem)
-        .where(
+        select(BillItem).where(
             BillItem.user_id == current_user.user_id,
             BillItem.item_name.ilike(f"%{keyword.strip()}%")
         )
     )
-    return res.scalars().all()
+    return [format_bill_item(i) for i in res.scalars().all()]

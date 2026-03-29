@@ -25,9 +25,14 @@ async def create_new_bill_item(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Convert Pydantic to dict for CRUD
-    data = bill_data.model_dump()
-    return await create_bill_item(db, data, current_user)
+    try:
+        data = bill_data.model_dump()
+        return await create_bill_item(db, data, current_user)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")
 
 
 # =========================
@@ -38,7 +43,11 @@ async def get_all_bill_items(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return await list_bill_items(db, current_user)
+    try:
+        return await list_bill_items(db, current_user)
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")
 
 
 # =========================
@@ -50,7 +59,13 @@ async def get_bill_item(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return await get_bill_item_by_id(db, billitem_id, current_user)
+    try:
+        return await get_bill_item_by_id(db, billitem_id, current_user)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")
 
 
 # =========================
@@ -62,7 +77,13 @@ async def delete_bill_item_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return await delete_bill_item(db, billitem_id, current_user)
+    try:
+        return await delete_bill_item(db, billitem_id, current_user)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")
 
 
 # =========================
@@ -74,6 +95,13 @@ async def search_bill_items_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if not keyword or not keyword.strip():
-        raise HTTPException(status_code=400, detail="سرچ کی ورڈ درکار ہے")
-    return await search_bill_items(db, keyword, current_user)
+    try:
+        if not keyword or not keyword.strip():
+            raise HTTPException(status_code=400, detail="سرچ کی ورڈ درکار ہے")
+
+        return await search_bill_items(db, keyword, current_user)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")

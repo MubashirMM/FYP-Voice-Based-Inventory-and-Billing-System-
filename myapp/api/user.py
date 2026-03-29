@@ -1,157 +1,188 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+from typing import List, Annotated
 from fastapi.security import OAuth2PasswordRequestForm
 
+from myapp.models.user import User
 from myapp.crud.user import (
-    authenticate_voice, register_user, authenticate_user, get_all_users,
-    initiate_password_reset, reset_password_in_db, delete_user, save_voice_samples,
-    update_user_by_id
+    register_user,
+    authenticate_user,
+    get_all_users,
+    initiate_password_reset,
+    reset_password_in_db,
+    delete_user,
+    save_voice_samples,
+    authenticate_voice,
+    update_own_profile
 )
+
 from myapp.database.session import get_db
 from myapp.schemas.user import (
-    UserRegister, UserRead, PasswordResetConfirm, ProfileUpdate,
-    UserVoiceLogin, VoiceSamplesSave
+    UserRegister,
+    UserRead,
+    UserReadWithUrduDate,
+    PasswordResetConfirm,
+    ProfileUpdate,
+    UserVoiceLogin,
+    VoiceSamplesSave
 )
-from myapp.services.email import send_email, get_registration_template, get_reset_template
-from myapp.utils.security import create_access_token 
+
+from myapp.utils.security import create_access_token, get_current_user
+from myapp.utils.urdu_date import format_full_date_urdu
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-# ---------------------------
-# Register
-# ---------------------------
+
+# ============================
+# REGISTER
+# ============================
 @router.post("/register", status_code=status.HTTP_201_CREATED)
-async def register(payload: UserRegister, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    user = await register_user(db, payload.email, payload.username, payload.password)
-    background_tasks.add_task(send_email, user.email, "VBUGIMS میں خوش آمدید", get_registration_template())
+async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
+    await register_user(db, payload.email, payload.username, payload.password)
     return {"detail": "اکاؤنٹ کامیابی سے بنا دیا گیا ہے"}
 
-# ---------------------------
-# Login (Password)
-# ---------------------------
+
+# ============================
+# LOGIN (PASSWORD)
+# ============================
 @router.post("/login")
 async def login(payload: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
-    try:
-        token = await authenticate_user(db, payload.username, payload.password)
-        return {"access_token": token, "token_type": "bearer"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"لاگ ان کے دوران خرابی: {str(e)}"
-        )
+    token = await authenticate_user(db, payload.username, payload.password)
+    return {"access_token": token, "token_type": "bearer"}
 
-# ---------------------------
-# Update Profile
-# ---------------------------
-@router.patch("/users/{user_id}", status_code=status.HTTP_200_OK)
-async def patch_user_profile(user_id: int, payload: ProfileUpdate, db: AsyncSession = Depends(get_db)):
-    updated_user = await update_user_by_id(db, user_id, payload)
+
+# ============================
+# FORGOT PASSWORD
+# ============================
+@router.post("/forgot-password")
+async def forgot_password(email: str, db: AsyncSession = Depends(get_db)):
+    code = await initiate_password_reset(db, email)
+
+    if not code:
+        raise HTTPException(status_code=404, detail="ای میل موجود نہیں ہے")
+
+    return {"پیغام": "ری سیٹ کوڈ آپ کی ای میل پر بھیج دیا گیا ہے"}
+
+
+# ============================
+# RESET PASSWORD
+# ============================
+@router.post("/reset-password-confirm")
+async def reset_password_confirm(payload: PasswordResetConfirm, db: AsyncSession = Depends(get_db)):
+    success = await reset_password_in_db(
+        db,
+        payload.email,
+        payload.reset_code,
+        payload.new_password
+    )
+
+    if not success:
+        raise HTTPException(status_code=400, detail="غلط کوڈ یا ای میل")
+
+    return {"پیغام": "پاس ورڈ کامیابی سے تبدیل کر دیا گیا ہے"}
+
+
+# ============================
+# SAVE VOICE
+# ============================
+@router.post("/save-voice-samples")
+async def save_voice(payload: VoiceSamplesSave, db: AsyncSession = Depends(get_db)):
+    user = await save_voice_samples(db, payload.email, payload.samples)
+
+    if not user:
+        raise HTTPException(status_code=404, detail="صارف نہیں ملا")
+
+    return {"پیغام": "وائس سیمپلز کامیابی سے محفوظ کر دیے گئے ہیں"}
+
+
+# ============================
+# VOICE LOGIN
+# ============================
+@router.post("/voice-login")
+async def voice_login(payload: UserVoiceLogin, db: AsyncSession = Depends(get_db)):
+    user = await authenticate_voice(db, payload.email, payload.audio_base64)
+
+    token = create_access_token({"sub": str(user.user_id)})
+
+    return {"access_token": token, "token_type": "bearer"}
+
+
+# ============================
+# GET CURRENT USER (with Urdu date)
+# ============================
+@router.get("/me", response_model=UserReadWithUrduDate)
+async def get_me(current_user: Annotated[User, Depends(get_current_user)]):
+    # Format the date in Urdu
+    formatted_date = format_full_date_urdu(current_user.created_at) if current_user.created_at else None
+    
+    return UserReadWithUrduDate(
+        user_id=current_user.user_id,
+        email=current_user.email,
+        username=current_user.username,
+        created_at=formatted_date
+    )
+
+
+# ============================
+# UPDATE PROFILE - FIXED
+# ============================
+@router.patch("/profile")
+async def update_profile(
+    payload: ProfileUpdate,
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db)
+):
+    # Update the profile
+    updated_user = await update_own_profile(db, current_user.user_id, payload)
+
     if not updated_user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"صارف {user_id} نہیں ملا"
-        )
+        raise HTTPException(status_code=404, detail="صارف نہیں ملا")
+
+    # Return success response
     return {
-        "detail": "پروفائل کامیابی سے اپ ڈیٹ کر دیا گیا ہے",
-        "صارف": {
+        "detail": "پروفائل کامیابی سے اپ ڈیٹ ہو گئی",
+        "user": {
             "id": updated_user.user_id,
             "username": updated_user.username,
             "email": updated_user.email
         }
     }
 
-# ---------------------------
-# Forgot Password
-# ---------------------------
-@router.post("/forgot-password")
-async def forgot_password(email: str, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
-    code = await initiate_password_reset(db, email)
-    if not code:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="ای میل موجود نہیں ہے"
-        )
-    background_tasks.add_task(send_email, email, "پاس ورڈ ری سیٹ کوڈ", get_reset_template(code))
-    return {"پیغام": "ری سیٹ کوڈ آپ کی ای میل پر بھیج دیا گیا ہے"}
 
-# ---------------------------
-# Reset Password Confirm
-# ---------------------------
-@router.post("/reset-password-confirm")
-async def reset_password_confirm(payload: PasswordResetConfirm, db: AsyncSession = Depends(get_db)):
-    success = await reset_password_in_db(db, payload.email, payload.reset_code, payload.new_password)
+# ============================
+# DELETE ACCOUNT
+# ============================
+@router.delete("/profile")
+async def delete_own_account(
+    current_user: Annotated[User, Depends(get_current_user)],
+    db: AsyncSession = Depends(get_db)
+):
+    success = await delete_user(db, current_user.user_id)
+
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="غلط کوڈ یا ای میل۔ براہ کرم دوبارہ کوشش کریں۔"
-        )
-    return {"پیغام": "پاس ورڈ کامیابی سے تبدیل کر دیا گیا ہے"}
+        raise HTTPException(status_code=404, detail="صارف نہیں ملا")
 
-# ---------------------------
-# Get Users
-# ---------------------------
-@router.get("/users", response_model=List[UserRead])
-async def get_users(db: AsyncSession = Depends(get_db)):
-    return await get_all_users(db)
+    return {"پیغام": "آپ کا اکاؤنٹ کامیابی سے حذف کر دیا گیا ہے"}
 
-# ---------------------------
-# Delete User
-# ---------------------------
-@router.delete("/users/{user_id}", status_code=status.HTTP_200_OK)
-async def delete_user_endpoint(user_id: int, db: AsyncSession = Depends(get_db)):
-    try:
-        result = await delete_user(db, user_id)
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="صارف موجود نہیں ہے یا پہلے ہی حذف کر دیا گیا ہے"
+
+# ============================
+# ADMIN: GET ALL USERS (with Urdu dates)
+# ============================
+@router.get("/users", response_model=List[UserReadWithUrduDate])
+async def get_all_users_admin(db: AsyncSession = Depends(get_db)):
+    users = await get_all_users(db)
+    
+    # Format each user's date in Urdu
+    formatted_users = []
+    for user in users:
+        formatted_date = format_full_date_urdu(user.created_at) if user.created_at else None
+        formatted_users.append(
+            UserReadWithUrduDate(
+                user_id=user.user_id,
+                email=user.email,
+                username=user.username,
+                created_at=formatted_date
             )
-        return {"پیغام": f"صارف {user_id} کامیابی سے حذف کر دیا گیا ہے"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"صارف کو حذف کرنے کے دوران خرابی: {str(e)}"
         )
-
-# ---------------------------
-# Save Voice Samples
-# ---------------------------
-@router.post("/save-voice-samples")
-async def save_voice(payload: VoiceSamplesSave, db: AsyncSession = Depends(get_db)):
-    user = await save_voice_samples(db, payload.email, payload.samples)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="صارف نہیں ملا"
-        )
-    return {"پیغام": "وائس سیمپلز کامیابی سے محفوظ کر دیے گئے ہیں"}
-
-# ---------------------------
-# Voice Login
-# ---------------------------
-@router.post("/voice-login")
-async def voice_login(payload: UserVoiceLogin, db: AsyncSession = Depends(get_db)):
-    try:
-        print("[voice_login] email:", payload.email)
-        user = await authenticate_voice(db, payload.email, payload.audio_base64)
-        if not user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="آواز میل نہیں کھاتی۔ دوبارہ کوشش کریں۔"
-            )
-       # Wrap the user_id in a dictionary
-        token = create_access_token(data={"sub": str(user.user_id)})
-        print("[voice_login] success for user_id:", user.user_id)
-        return {"access_token": token, "token_type": "bearer"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        print("[voice_login] ERROR:", str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"وائس لاگ ان کے دوران خرابی: {str(e)}"
-        )
+    
+    return formatted_users

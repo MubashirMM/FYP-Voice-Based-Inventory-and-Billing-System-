@@ -33,7 +33,8 @@ class Udhar(Base):
     paid_time: Mapped[str] = mapped_column(String(15), default="")
     paid_day_name: Mapped[str] = mapped_column(String(15), default="")
 
-    customer = relationship("Customer", back_populates="udhar")
+    # ✅ FIXED: Use 'udhars' in Customer model, so back_populates should be 'udhars'
+    customer = relationship("Customer", back_populates="udhars")
     user = relationship("User", back_populates="udhars")
     udharitems = relationship("UdharItem", back_populates="udhar", cascade="all, delete-orphan")
 

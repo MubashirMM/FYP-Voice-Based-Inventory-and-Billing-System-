@@ -25,6 +25,18 @@ class ItemCreate(BaseModel):
     unit_price: float
     stock_quantity: float
 
+    @field_validator("item_name")
+    def name_not_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("آئٹم کا نام خالی نہیں ہو سکتا")
+        return v.strip()
+
+    @field_validator("item_unit")
+    def unit_not_empty(cls, v):
+        if not v or not v.strip():
+            raise ValueError("یونٹ خالی نہیں ہو سکتا")
+        return v.strip()
+
     @field_validator("unit_price")
     def price_positive(cls, v):
         if v <= 0:
@@ -50,6 +62,17 @@ class ItemUpdate(BaseModel):
     item_unit: Optional[str] = None
     unit_price: Optional[float] = None
 
+    @field_validator("item_name")
+    def name_not_empty(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError("آئٹم کا نام خالی نہیں ہو سکتا")
+        return v.strip() if v else v
+
+    @field_validator("item_unit")
+    def unit_not_empty(cls, v):
+        if v is not None and (not v or not v.strip()):
+            raise ValueError("یونٹ خالی نہیں ہو سکتا")
+        return v.strip() if v else v
     @field_validator("unit_price")
     def price_positive(cls, v):
         if v is not None and v <= 0:
