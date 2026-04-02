@@ -2,7 +2,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, DateTime, LargeBinary
 from datetime import datetime, timezone
 from myapp.database.session import Base
-# from myapp.models.report import Report
+from myapp.models.forecast_report import ForecastReport
 
 
 class User(Base):
@@ -33,7 +33,10 @@ class User(Base):
     bill_items = relationship("BillItemHistory", back_populates="user", cascade="all, delete-orphan")
     shops = relationship("Shop", back_populates="user", cascade="all, delete-orphan")
     billitems = relationship("BillItem", back_populates="user", cascade="all, delete-orphan")
+    # Inside User class
+    forecast_reports = relationship("ForecastReport", back_populates="user", cascade="all, delete-orphan")
     reports: Mapped[list["Report"]] = relationship(
     back_populates="user", 
     cascade="all, delete-orphan"
+    
 )

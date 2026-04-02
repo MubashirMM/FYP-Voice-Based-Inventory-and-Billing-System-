@@ -106,12 +106,12 @@ async def delete_bill_endpoint(
     result = await delete_bill(db, bill_id, current_user)
 
     if result == "unpaid":
-        raise HTTPException(status_code=400, detail="بل ادا نہیں ہوا۔ پہلے ادا کریں۔")
+        raise HTTPException(status_code=400, detail="❌ بل ادا نہیں ہوا۔ پہلے ادا کریں۔")
 
     if not result:
-        raise HTTPException(status_code=404, detail="بل نہیں ملا")
+        raise HTTPException(status_code=404, detail="❌ بل نہیں ملا")
 
-    return {"پیغام": f"بل {bill_id} کامیابی سے حذف کر دیا گیا"}
+    return {"message": f"✅ بل {bill_id} کامیابی سے حذف کر دیا گیا", "success": True}
 
 
 # =========================

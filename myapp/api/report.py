@@ -1,83 +1,100 @@
+# =========================
+# IMPORTS (ALL AT TOP)
+# =========================
+import os
+import stat
+import time
+import asyncio  # ← Added for async sleep
+import shutil
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
-import os
-import shutil
 
 from myapp.database.session import get_db
 from myapp.models.sales import Sale
 from myapp.models.report import Report
 from myapp.models.user import User
 from myapp.utils.security import get_current_user
-
 from myapp.schemas.report import ReportResponse
 from myapp.crud.report import create_report, delete_report, get_reports, get_report
 from myapp.utils.report_generator import generate_report_files
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
-
 BASE_DIR = "reports_storage"
 
 
-# Update the generate_report function in routers/report.py
+# =========================
+# HELPER: Safe Folder Deletion (Windows-Compatible)
+# =========================
+def _remove_readonly(func, path, excinfo):
+    """Error handler for shutil.rmtree on Windows."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass  # Best effort
 
+
+def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.3) -> bool:
+    """
+    Safely delete a folder with retry logic for Windows file locks.
+    Returns True if successful, False if failed.
+    """
+    if not os.path.exists(folder_path):
+        return True
+    
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(folder_path, ignore_errors=False, onerror=_remove_readonly)
+            return True
+        except PermissionError:
+            if attempt == max_retries - 1:
+                print(f"⚠️ Failed to delete {folder_path} after {max_retries} attempts")
+                return False
+            # Use sync sleep in sync function (or wrap in asyncio.to_thread)
+            time.sleep(delay * (attempt + 1))
+        except Exception as e:
+            print(f"⚠️ Error deleting {folder_path}: {e}")
+            return False
+    return False
+
+
+# =========================
+# GENERATE REPORT
+# =========================
 @router.post("/generate", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def generate_report(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Get all sales for this user
-    stmt = (
-        select(Sale)
-        .where(Sale.user_id == current_user.user_id)
-        .order_by(Sale.sale_date.desc())
-    )
-    
+    stmt = select(Sale).where(Sale.user_id == current_user.user_id).order_by(Sale.sale_date.desc())
     res = await db.execute(stmt)
     sales = res.scalars().all()
     
-    # Check if at least 5 sales exist
     if len(sales) < 5:
-        raise HTTPException(
-            status_code=400, 
-            detail="رپورٹ جنریٹ کرنے کے لیے کم از کم 5 فروخت کے ریکارڈز ضروری ہیں۔ براہ کرم مزید فروخت شامل کریں۔"
-        )
+        raise HTTPException(status_code=400, detail="رپورٹ جنریٹ کرنے کے لیے کم از کم 5 فروخت کے ریکارڈز ضروری ہیں۔")
     
-    # Check if at least 5 unique items exist
-    unique_items = set()
-    for sale in sales:
-        unique_items.add(sale.item_name)
-    
+    unique_items = {s.item_name for s in sales}
     if len(unique_items) < 5:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"رپورٹ جنریٹ کرنے کے لیے کم از کم 5 مختلف اشیاء کی فروخت ضروری ہے۔ موجودہ منفرد اشیاء: {len(unique_items)}"
-        )
+        raise HTTPException(status_code=400, detail=f"کم از کم 5 مختلف اشیاء ضروری ہیں۔ موجودہ: {len(unique_items)}")
     
-    # Create report in database
     report = await create_report(
-        db,
-        user_id=current_user.user_id,
-        title=f"فروخت رپورٹ - {len(sales)} ریکارڈز, {len(unique_items)} اشیاء",
-        kpi_summary={}
+        db, user_id=current_user.user_id,
+        title=f"فروخت رپورٹ - {len(sales)} ریکارڈز", kpi_summary={}
     )
     
-    # Generate report files
     result = await generate_report_files(report.report_id, sales)
     
-    # Check if generation had an error
     if result.get("error"):
-        # Delete the report if generation failed
         await db.delete(report)
         await db.commit()
         raise HTTPException(status_code=400, detail=result["message"])
     
-    # Update report with KPI summary
     report.kpi_summary = result["kpi"]
     report.table_data = {"total_records": len(sales), "unique_items": len(unique_items)}
-    
     await db.commit()
     await db.refresh(report)
     
@@ -85,7 +102,7 @@ async def generate_report(
 
 
 # =========================
-# DOWNLOAD REPORT (PDF)
+# DOWNLOAD PDF
 # =========================
 @router.get("/download-pdf/{report_id}")
 async def download_report_pdf(
@@ -93,27 +110,19 @@ async def download_report_pdf(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Verify report exists and belongs to user
     report = await get_report(db, report_id, current_user.user_id)
-    
     if not report:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
     
-    folder = f"{BASE_DIR}/report_{report_id}"
-    pdf_path = os.path.join(folder, "dashboard.pdf")
-    
+    pdf_path = os.path.join(BASE_DIR, f"report_{report_id}", "dashboard.pdf")
     if not os.path.exists(pdf_path):
         raise HTTPException(status_code=404, detail="PDF فائل موجود نہیں ہے")
     
-    return FileResponse(
-        pdf_path,
-        media_type="application/pdf",
-        filename=f"sales_report_{report_id}.pdf"
-    )
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"sales_report_{report_id}.pdf")
 
 
 # =========================
-# DOWNLOAD REPORT (EXCEL)
+# DOWNLOAD EXCEL
 # =========================
 @router.get("/download-excel/{report_id}")
 async def download_report_excel(
@@ -121,63 +130,26 @@ async def download_report_excel(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Verify report exists and belongs to user
     report = await get_report(db, report_id, current_user.user_id)
-    
     if not report:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
     
-    folder = f"{BASE_DIR}/report_{report_id}"
-    excel_path = os.path.join(folder, "sales_report.xlsx")
-    
+    excel_path = os.path.join(BASE_DIR, f"report_{report_id}", "sales_report.xlsx")
     if not os.path.exists(excel_path):
         raise HTTPException(status_code=404, detail="Excel فائل موجود نہیں ہے")
     
-    return FileResponse(
-        excel_path,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        filename=f"sales_report_{report_id}.xlsx"
-    )
-
-
-# # =========================
-# # DOWNLOAD REPORT (CSV)
-# # =========================
-# @router.get("/download-csv/{report_id}")
-# async def download_report_csv(
-#     report_id: int,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user)
-# ):
-#     # Verify report exists and belongs to user
-#     report = await get_report(db, report_id, current_user.user_id)
-    
-#     if not report:
-#         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
-    
-#     folder = f"{BASE_DIR}/report_{report_id}"
-#     csv_path = os.path.join(folder, "sales_export.csv")
-    
-#     if not os.path.exists(csv_path):
-#         raise HTTPException(status_code=404, detail="CSV فائل موجود نہیں ہے")
-    
-#     return FileResponse(
-#         csv_path,
-#         media_type="text/csv",
-#         filename=f"sales_report_{report_id}.csv"
-#     )
+    return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"sales_report_{report_id}.xlsx")
 
 
 # =========================
-# GET ALL REPORTS
+# LIST ALL REPORTS
 # =========================
 @router.get("/", response_model=list[ReportResponse])
 async def list_reports(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    reports = await get_reports(db, current_user.user_id)
-    return reports
+    return await get_reports(db, current_user.user_id)
 
 
 # =========================
@@ -190,15 +162,40 @@ async def get_report_by_id(
     current_user: User = Depends(get_current_user)
 ):
     report = await get_report(db, report_id, current_user.user_id)
-    
     if not report:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
-    
     return report
 
 
 # =========================
-# DELETE REPORT
+# ⚠️ DELETE ALL (SPECIFIC - DEFINE BEFORE PARAMETERIZED)
+# =========================
+@router.delete("/all", status_code=status.HTTP_200_OK)
+async def delete_all_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    reports = await get_reports(db, current_user.user_id)
+    if not reports:
+        raise HTTPException(status_code=404, detail="کوئی رپورٹ موجود نہیں")
+    
+    deleted_count = 0
+    for report in reports:
+        success = await delete_report(db, report.report_id, current_user.user_id)
+        if not success:
+            continue
+        
+        folder = f"{BASE_DIR}/report_{report.report_id}"
+        if safe_delete_folder(folder):
+            deleted_count += 1
+        else:
+            print(f"⚠️ Folder cleanup failed: {folder}")
+    
+    return {"message": f"{deleted_count} رپورٹس کامیابی سے حذف کر دی گئیں"}
+
+
+# =========================
+# ⚠️ DELETE SINGLE (GENERAL - DEFINE AFTER SPECIFIC)
 # =========================
 @router.delete("/{report_id}", status_code=status.HTTP_200_OK)
 async def delete_report_endpoint(
@@ -206,41 +203,12 @@ async def delete_report_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    # Delete from database
     success = await delete_report(db, report_id, current_user.user_id)
-    
     if not success:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
     
-    # Delete files
     folder = f"{BASE_DIR}/report_{report_id}"
-    if os.path.exists(folder):
-        shutil.rmtree(folder)
+    if not safe_delete_folder(folder):
+        print(f"⚠️ Folder cleanup failed: {folder}")
     
     return {"message": "رپورٹ کامیابی سے حذف کر دی گئی"}
-
-
-# =========================
-# DELETE ALL REPORTS
-# =========================
-@router.delete("/all", status_code=status.HTTP_200_OK)
-async def delete_all_reports(
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    # Get all reports for user
-    reports = await get_reports(db, current_user.user_id)
-    
-    if not reports:
-        raise HTTPException(status_code=404, detail="کوئی رپورٹ موجود نہیں")
-    
-    # Delete each report
-    for report in reports:
-        await delete_report(db, report.report_id, current_user.user_id)
-        
-        # Delete files
-        folder = f"{BASE_DIR}/report_{report.report_id}"
-        if os.path.exists(folder):
-            shutil.rmtree(folder)
-    
-    return {"message": f"{len(reports)} رپورٹس کامیابی سے حذف کر دی گئیں"}

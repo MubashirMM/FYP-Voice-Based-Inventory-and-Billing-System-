@@ -17,6 +17,8 @@ from myapp.api.report import router as report
 from myapp.api.forcasting import router as forcast
 from myapp.api.bill_item import router as bill_item
 from myapp.api.bill_item_history import router as bill_item_history
+from myapp.api.forcasting import router as forecast
+
 
 
 @asynccontextmanager

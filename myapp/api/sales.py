@@ -12,7 +12,7 @@ from myapp.utils.urdu_date import convert_datetime_to_urdu, get_urdu_day_number,
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
-
+ 
 # ============================
 # CREATE SALE
 # ============================

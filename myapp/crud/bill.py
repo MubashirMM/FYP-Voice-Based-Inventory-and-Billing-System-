@@ -39,18 +39,25 @@ async def get_customer_by_name(db: AsyncSession, name: str, current_user: User):
 # =========================
 # SYNC BILL FROM UDHAAR
 # =========================
+# =========================
+# SYNC BILL FROM UDHAAR
+# =========================
 async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user: User):
 
+    # Get the most recent unpaid udhar (if multiple, take the latest one)
     res = await db.execute(
         select(Udhar).where(
             Udhar.customer_id == customer_id,
             Udhar.user_id == current_user.user_id,
             Udhar.status == "unpaid"
         )
+        .order_by(Udhar.udhar_id.desc())
+        .limit(1)  # ✅ Add limit to get only one row
     )
     udhar = res.scalar_one_or_none()
 
     if not udhar:
+        # If no unpaid udhar, get the most recent one (any status)
         res = await db.execute(
             select(Udhar)
             .where(
@@ -58,8 +65,13 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
                 Udhar.user_id == current_user.user_id
             )
             .order_by(Udhar.udhar_id.desc())
+            .limit(1)  # ✅ Add limit
         )
         udhar = res.scalar_one_or_none()
+
+    # If still no udhar, return without syncing
+    if not udhar:
+        return None
 
     res = await db.execute(
         select(UdharItem).where(
@@ -74,6 +86,7 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
     direct_ded = float(udhar.direct_deduction) if udhar else 0.0
     effective_total = items_total + direct_add - direct_ded
 
+    # Get or create unpaid bill
     res = await db.execute(
         select(Bill).where(
             Bill.customer_id == customer_id,
@@ -139,7 +152,6 @@ async def sync_bill_from_udhar(db: AsyncSession, customer_id: int, current_user:
     await db.refresh(bill)
 
     return bill
-
 
 # =========================
 # FORMAT BILL (NEW COMMON FUNCTION)
@@ -267,39 +279,63 @@ async def pay_bill(db: AsyncSession, customer_id: int, current_user: User):
 # =========================
 # PAY BILL BY CUSTOMER NAME
 # =========================
+# =========================
+# PAY BILL BY CUSTOMER NAME
+# =========================
 async def pay_bill_by_customer_name(db: AsyncSession, customer_name: str, current_user: User):
 
     customer = await get_customer_by_name(db, customer_name, current_user)
 
+    # Get the unpaid udhar for this customer
     res = await db.execute(
         select(Udhar).where(
             Udhar.customer_id == customer.customer_id,
             Udhar.user_id == current_user.user_id,
             Udhar.status == "unpaid"
         )
+        .order_by(Udhar.udhar_id.desc())
+        .limit(1)
     )
     udhar = res.scalar_one_or_none()
 
     if not udhar:
         raise HTTPException(status_code=400, detail="یہ ادھار پہلے ہی ادا ہو چکا ہے")
 
+    # Pay the bill
     bill = await pay_bill(db, customer.customer_id, current_user)
 
     if not bill:
         raise HTTPException(status_code=404, detail="بل نہیں ملا")
 
+    # ✅ ADD THIS: Update udhar status to paid
+    if udhar:
+        udhar.status = "paid"
+        udhar.paid_date = datetime.now().date()
+        now = datetime.now()
+        paid_urdu = convert_datetime_to_urdu(now, "paid")
+        udhar.paid_day = paid_urdu["paid_day"]
+        udhar.paid_month = paid_urdu["paid_month"]
+        udhar.paid_year = paid_urdu["paid_year"]
+        udhar.paid_time = paid_urdu["paid_time"]
+        udhar.paid_day_name = paid_urdu["paid_day_name"]
+        await db.commit()
+        await db.refresh(udhar)
+
     return {
-        "message": "بل ادا ہو گیا",
+        "message": "بل اور ادھار کامیابی سے ادا کر دیا گیا",
         "customer_name": customer.customer_name,
-        "bill_id": bill.bill_id
+        "bill_id": bill.bill_id,
+        "udhar_id": udhar.udhar_id,
+        "status": "paid"
     }
-
-
 # =========================
 # DELETE BILL
 # =========================
 async def delete_bill(db: AsyncSession, bill_id: int, current_user: User):
 
+    from myapp.models.bill_item import BillItem  # Import here to avoid circular import
+
+    # Check if bill exists
     res = await db.execute(
         select(Bill).where(
             Bill.bill_id == bill_id,
@@ -311,9 +347,19 @@ async def delete_bill(db: AsyncSession, bill_id: int, current_user: User):
     if not bill:
         return False
 
+    # Cannot delete unpaid bill
     if bill.status == "unpaid":
         return "unpaid"
 
+    # ✅ First delete all related bill items (BillItem table)
+    await db.execute(
+        delete(BillItem).where(
+            BillItem.bill_id == bill_id,
+            BillItem.user_id == current_user.user_id
+        )
+    )
+
+    # ✅ Then delete bill item history
     await db.execute(
         delete(BillItemHistory).where(
             BillItemHistory.bill_id == bill_id,
@@ -321,6 +367,7 @@ async def delete_bill(db: AsyncSession, bill_id: int, current_user: User):
         )
     )
 
+    # ✅ Finally delete the bill itself
     await db.execute(
         delete(Bill).where(
             Bill.bill_id == bill_id,

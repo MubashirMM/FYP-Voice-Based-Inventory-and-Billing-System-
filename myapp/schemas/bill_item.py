@@ -25,6 +25,7 @@ class BillItemRead(BaseModel):
     billitem_id: int
     bill_id: int
     item_name: str
+    item_unit:str
     unit_price: float
     quantity: float
     requested_unit: str

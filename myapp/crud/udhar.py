@@ -1,3 +1,5 @@
+from sqlite3 import IntegrityError
+
 from fastapi import HTTPException
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -407,10 +409,11 @@ async def update_direct_deduction(db: AsyncSession, customer_name: str, amount: 
 
 
 # =========================
-# DELETE UDHAR BY ID
+# DELETE UDHAR BY ID (Improved with proper error handling)
 # =========================
 async def delete_udhar_by_id(db: AsyncSession, udhar_id: int, current_user: User):
 
+    # First, check if udhar exists
     res = await db.execute(
         select(Udhar).where(
             Udhar.udhar_id == udhar_id,
@@ -422,38 +425,77 @@ async def delete_udhar_by_id(db: AsyncSession, udhar_id: int, current_user: User
     if not udhar:
         raise HTTPException(status_code=404, detail="یہ ادھار موجود نہیں ہے")
 
-    customer_id = udhar.customer_id
-
-    # Delete related udhar items
-    await db.execute(
-        delete(UdharItem).where(
-            UdharItem.udhar_id == udhar.udhar_id,
-            UdharItem.user_id == current_user.user_id
+    # Check if this udhar is unpaid and has related bill items
+    if udhar.status == "unpaid":
+        # Optional: Check if bill exists and has history
+        res = await db.execute(
+            select(Bill).where(
+                Bill.customer_id == udhar.customer_id,
+                Bill.user_id == current_user.user_id,
+                Bill.status == "unpaid"
+            )
         )
-    )
+        bill = res.scalar_one_or_none()
 
-    # Delete related unpaid bill
-    await db.execute(
-        delete(Bill).where(
-            Bill.customer_id == customer_id,
-            Bill.user_id == current_user.user_id,
-            Bill.status == "unpaid"
+        if bill:
+            raise HTTPException(
+                status_code=400,
+                detail="غیر ادا شدہ ادھار/بل کو ڈیلیٹ نہیں کیا جا سکتا۔ براہ مہربانی پہلے اسے ادا کریں۔"
+            )
+
+    try:
+        customer_id = udhar.customer_id
+
+        # Delete related udhar items first
+        await db.execute(
+            delete(UdharItem).where(
+                UdharItem.udhar_id == udhar.udhar_id,
+                UdharItem.user_id == current_user.user_id
+            )
         )
-    )
 
-    # Delete the udhar record
-    await db.execute(
-        delete(Udhar).where(
-            Udhar.udhar_id == udhar.udhar_id,
-            Udhar.user_id == current_user.user_id
+        # Delete related unpaid bill
+        await db.execute(
+            delete(Bill).where(
+                Bill.customer_id == customer_id,
+                Bill.user_id == current_user.user_id,
+                Bill.status == "unpaid"
+            )
         )
-    )
 
-    await db.commit()
+        # Finally delete the udhar
+        await db.execute(
+            delete(Udhar).where(
+                Udhar.udhar_id == udhar.udhar_id,
+                Udhar.user_id == current_user.user_id
+            )
+        )
 
-    return {"message": "ادھار کامیابی سے حذف کر دیا گیا"}
+        await db.commit()
 
+        return {"message": "ادھار کامیابی سے حذف کر دیا گیا۔"}
 
+    except IntegrityError as e:
+        await db.rollback()
+        # Foreign Key Violation Error Handling
+        if "bill_item_history" in str(e.orig):
+            raise HTTPException(
+                status_code=400,
+                detail="غیر ادا شدہ بل کو ڈیلیٹ نہیں کیا جا سکتا۔ براہ مہربانی پہلے اس بل کو ادا کریں۔"
+            )
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="ڈیٹابیس میں خرابی آئی ہے۔"
+            )
+
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"غلطی: {str(e)}"
+        )
+    
 # =========================
 # PAY UDHAR BY CUSTOMER NAME
 # =========================
@@ -472,6 +514,32 @@ async def pay_udhaar_by_customer_name(db: AsyncSession, customer_name: str, curr
             status_code=404,
             detail="اس گاہک کا کوئی غیر ادا شدہ بل موجود نہیں"
         )
+
+    # ✅ ADD THIS: Update udhar status to paid
+    # Get the unpaid udhar for this customer
+    res = await db.execute(
+        select(Udhar).where(
+            Udhar.customer_id == customer.customer_id,
+            Udhar.user_id == current_user.user_id,
+            Udhar.status == "unpaid"
+        )
+        .order_by(Udhar.udhar_id.desc())
+        .limit(1)
+    )
+    udhar = res.scalar_one_or_none()
+    
+    if udhar:
+        udhar.status = "paid"
+        udhar.paid_date = datetime.now().date()
+        now = datetime.now()
+        paid_urdu = convert_datetime_to_urdu(now, "paid")
+        udhar.paid_day = paid_urdu["paid_day"]
+        udhar.paid_month = paid_urdu["paid_month"]
+        udhar.paid_year = paid_urdu["paid_year"]
+        udhar.paid_time = paid_urdu["paid_time"]
+        udhar.paid_day_name = paid_urdu["paid_day_name"]
+        await db.commit()
+        await db.refresh(udhar)
 
     return {
         "message": "ادھار اور بل کامیابی سے ادا کر دیا گیا",
