@@ -4,9 +4,9 @@
 import os
 import stat
 import time
-import asyncio  # ← Added for async sleep
 import shutil
 from pathlib import Path
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -21,6 +21,7 @@ from myapp.utils.security import get_current_user
 from myapp.schemas.report import ReportResponse
 from myapp.crud.report import create_report, delete_report, get_reports, get_report
 from myapp.utils.report_generator import generate_report_files
+from myapp.utils.urdu_date import convert_datetime_to_urdu
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 BASE_DIR = "reports_storage"
@@ -35,14 +36,11 @@ def _remove_readonly(func, path, excinfo):
         os.chmod(path, stat.S_IWRITE)
         func(path)
     except Exception:
-        pass  # Best effort
+        pass
 
 
 def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.3) -> bool:
-    """
-    Safely delete a folder with retry logic for Windows file locks.
-    Returns True if successful, False if failed.
-    """
+    """Safely delete a folder with retry logic for Windows file locks."""
     if not os.path.exists(folder_path):
         return True
     
@@ -54,7 +52,6 @@ def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.
             if attempt == max_retries - 1:
                 print(f"⚠️ Failed to delete {folder_path} after {max_retries} attempts")
                 return False
-            # Use sync sleep in sync function (or wrap in asyncio.to_thread)
             time.sleep(delay * (attempt + 1))
         except Exception as e:
             print(f"⚠️ Error deleting {folder_path}: {e}")
@@ -68,8 +65,11 @@ def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.
 @router.post("/generate", response_model=ReportResponse, status_code=status.HTTP_201_CREATED)
 async def generate_report(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user) 
 ):
+    """Generate a new sales report (Excel only)"""
+    
+    # Get all sales for this user
     stmt = select(Sale).where(Sale.user_id == current_user.user_id).order_by(Sale.sale_date.desc())
     res = await db.execute(stmt)
     sales = res.scalars().all()
@@ -81,11 +81,19 @@ async def generate_report(
     if len(unique_items) < 5:
         raise HTTPException(status_code=400, detail=f"کم از کم 5 مختلف اشیاء ضروری ہیں۔ موجودہ: {len(unique_items)}")
     
+    # Create report record (Urdu dates will be automatically added in create_report)
     report = await create_report(
-        db, user_id=current_user.user_id,
-        title=f"فروخت رپورٹ - {len(sales)} ریکارڈز", kpi_summary={}
+        db, 
+        user_id=current_user.user_id,
+        title=f"فروخت رپورٹ - {len(sales)} ریکارڈز", 
+        kpi_summary={},
+        table_data={
+            "total_records": len(sales),
+            "unique_items": len(unique_items)
+        }
     )
     
+    # Generate Excel report
     result = await generate_report_files(report.report_id, sales)
     
     if result.get("error"):
@@ -93,32 +101,12 @@ async def generate_report(
         await db.commit()
         raise HTTPException(status_code=400, detail=result["message"])
     
+    # Update report with KPI data
     report.kpi_summary = result["kpi"]
-    report.table_data = {"total_records": len(sales), "unique_items": len(unique_items)}
     await db.commit()
     await db.refresh(report)
     
     return report
-
-
-# =========================
-# DOWNLOAD PDF
-# =========================
-@router.get("/download-pdf/{report_id}")
-async def download_report_pdf(
-    report_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    report = await get_report(db, report_id, current_user.user_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
-    
-    pdf_path = os.path.join(BASE_DIR, f"report_{report_id}", "dashboard.pdf")
-    if not os.path.exists(pdf_path):
-        raise HTTPException(status_code=404, detail="PDF فائل موجود نہیں ہے")
-    
-    return FileResponse(pdf_path, media_type="application/pdf", filename=f"sales_report_{report_id}.pdf")
 
 
 # =========================
@@ -130,6 +118,7 @@ async def download_report_excel(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Download Excel report file"""
     report = await get_report(db, report_id, current_user.user_id)
     if not report:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
@@ -138,7 +127,11 @@ async def download_report_excel(
     if not os.path.exists(excel_path):
         raise HTTPException(status_code=404, detail="Excel فائل موجود نہیں ہے")
     
-    return FileResponse(excel_path, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", filename=f"sales_report_{report_id}.xlsx")
+    return FileResponse(
+        excel_path, 
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", 
+        filename=f"sales_report_{report_id}.xlsx"
+    )
 
 
 # =========================
@@ -149,6 +142,7 @@ async def list_reports(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Get all reports for current user"""
     return await get_reports(db, current_user.user_id)
 
 
@@ -161,6 +155,7 @@ async def get_report_by_id(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Get a specific report by ID"""
     report = await get_report(db, report_id, current_user.user_id)
     if not report:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")
@@ -168,13 +163,14 @@ async def get_report_by_id(
 
 
 # =========================
-# ⚠️ DELETE ALL (SPECIFIC - DEFINE BEFORE PARAMETERIZED)
+# DELETE ALL REPORTS
 # =========================
 @router.delete("/all", status_code=status.HTTP_200_OK)
 async def delete_all_reports(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Delete all reports for current user"""
     reports = await get_reports(db, current_user.user_id)
     if not reports:
         raise HTTPException(status_code=404, detail="کوئی رپورٹ موجود نہیں")
@@ -195,7 +191,7 @@ async def delete_all_reports(
 
 
 # =========================
-# ⚠️ DELETE SINGLE (GENERAL - DEFINE AFTER SPECIFIC)
+# DELETE SINGLE REPORT
 # =========================
 @router.delete("/{report_id}", status_code=status.HTTP_200_OK)
 async def delete_report_endpoint(
@@ -203,6 +199,7 @@ async def delete_report_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
+    """Delete a single report"""
     success = await delete_report(db, report_id, current_user.user_id)
     if not success:
         raise HTTPException(status_code=404, detail="رپورٹ نہیں ملی")

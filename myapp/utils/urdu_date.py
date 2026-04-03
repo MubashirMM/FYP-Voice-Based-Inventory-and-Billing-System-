@@ -205,3 +205,15 @@ def get_urdu_date_components(date_obj) -> dict:
         "sale_time": time_str,
         "sale_day_name": parts.get("sale_day_name", "")
     }
+
+def format_full_date_urdu(date_obj) -> str:
+    """Return full Urdu date like '12 فروری 2024' with day name"""
+    if date_obj is None:
+        return ""
+    
+    day_number = str(date_obj.day)  # numeric day
+    month = get_urdu_month(date_obj.month)
+    year = str(date_obj.year)
+    day_name = get_urdu_day_name(date_obj.weekday())
+    
+    return f"{day_name}، {day_number} {month} {year}"
