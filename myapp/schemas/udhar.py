@@ -12,6 +12,10 @@ class UdharRead(BaseModel):
     status: str
     created_date: date | None
     paid_date: date | None
+    paid_time:str | None
+    paid_day_name:str | None
+    udhar_time:str | None
+
 
     # Urdu formatted dates
     @computed_field
