@@ -1,156 +1,30 @@
-# myapp/utils/forecast_report_charts.py
+"""
+Forecast Report Generator — Excel Only
+====================================
+Generates comprehensive Excel forecast report with:
+- Item trend analysis (increasing/decreasing/stable)
+- Sales forecasting based on historical data
+- Only analyzes items with 3+ sales records
+- Professional formatting
+- Urdu/English support
+"""
+
 import os
-import csv
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Dict, Tuple
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib
-matplotlib.use('Agg')
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+from openpyxl.utils import get_column_letter
 import warnings
 warnings.filterwarnings('ignore')
-
-# Font and text processing imports
-import arabic_reshaper
-from bidi.algorithm import get_display
-import urllib.request
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-    Image, PageBreak, KeepTogether
-)
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
-
-# ═══════════════════════════════════════════════════════════════════
-# FONT SYSTEM (FULL UNICODE FONT - SUPPORTS URDU + ENGLISH)
-# ALL MESSAGES IN URDU
-# ═══════════════════════════════════════════════════════════════════
-
-FONT_DIR = "fonts"
-os.makedirs(FONT_DIR, exist_ok=True)
-
-# 🔥 CRITICAL FIX: Use NotoSans-Regular.ttf (Full Unicode) instead of NotoSansArabic
-UNICODE_FONT_PATH = os.path.join(FONT_DIR, "NotoSans-Regular.ttf")
 
 
 def _urdu_msg(text):
     """Convert message to Urdu display format for console"""
-    try:
-        # Simple check for Urdu characters
-        for ch in text:
-            if ord(ch) >= 0x0600:
-                try:
-                    return get_display(arabic_reshaper.reshape(text))
-                except:
-                    return text
-        return text
-    except:
-        return text
-
-
-def _download_font(url, path):
-    """Download font from URL to specified path"""
-    try:
-        print(_urdu_msg(f"📥 ڈاؤن لوڈ ہو رہا ہے: {url}"))
-        urllib.request.urlretrieve(url, path)
-        if os.path.exists(path) and os.path.getsize(path) > 10000:
-            print(_urdu_msg(f"✅ کامیابی سے محفوظ: {path}"))
-            return True
-        else:
-            print(_urdu_msg(f"❌ ڈاؤن لوڈ ناکام: فائل بہت چھوٹی"))
-            return False
-    except Exception as e:
-        print(_urdu_msg(f"❌ ڈاؤن لوڈ میں خرابی: {e}"))
-        return False
-
-
-def _ensure_font():
-    """Ensure full Unicode font is available, download if missing"""
-    
-    # Check if old broken font exists and remove it
-    old_font_path = os.path.join(FONT_DIR, "NotoSansArabic-Regular.ttf")
-    if os.path.exists(old_font_path):
-        print(_urdu_msg("🗑️ پرانا فونٹ ہٹایا جا رہا ہے (NotoSansArabic)..."))
-        try:
-            os.remove(old_font_path)
-            print(_urdu_msg("✅ پرانا فونٹ ہٹا دیا گیا"))
-        except:
-            print(_urdu_msg("⚠️ پرانا فونٹ ہٹانے میں مسئلہ"))
-    
-    # Check and download full Unicode font
-    if not os.path.exists(UNICODE_FONT_PATH):
-        print(_urdu_msg("🔍 مکمل یونیکوڈ فونٹ نہیں ملا، ڈاؤن لوڈ ہو رہا ہے..."))
-        # 🔥 Updated URLs for full Unicode NotoSans
-        font_urls = [
-            "https://github.com/google/fonts/raw/main/ofl/notosans/NotoSans-Regular.ttf",
-            "https://raw.githubusercontent.com/googlefonts/noto-fonts/main/hinted/ttf/NotoSans/NotoSans-Regular.ttf",
-            "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf"
-        ]
-        
-        downloaded = False
-        for url in font_urls:
-            if _download_font(url, UNICODE_FONT_PATH):
-                downloaded = True
-                break
-        
-        if not downloaded:
-            print(_urdu_msg("❌ فونٹ ڈاؤن لوڈ نہیں ہو سکا۔ براہ کرم انٹرنیٹ کنکشن چیک کریں۔"))
-            raise RuntimeError("Font download failed")
-    else:
-        print(_urdu_msg(f"✅ مکمل یونیکوڈ فونٹ پہلے سے موجود: {UNICODE_FONT_PATH}"))
-    
-    print(_urdu_msg("✅ فونٹ کامیابی سے لوڈ ہو گیا"))
-    return UNICODE_FONT_PATH
-
-
-# Initialize fonts (downloads if needed)
-print(_urdu_msg("🚀 فونٹ سسٹم شروع ہو رہا ہے..."))
-FONT_PATH = _ensure_font()
-
-# Register font
-pdfmetrics.registerFont(TTFont("UnicodeFont", FONT_PATH))
-UNICODE_FONT = "UnicodeFont"
-
-# Setup matplotlib fonts
-_unicode_mpl = matplotlib.font_manager.FontProperties(fname=FONT_PATH)
-
-print(_urdu_msg("🎉 فونٹ سسٹم تیار ہے (اب انگلش بھی صحیح ظاہر ہو گا)"))
-
-
-# ═══════════════════════════════════════════════════════════════════
-# TEXT HELPERS
-# ═══════════════════════════════════════════════════════════════════
-
-def _is_rtl(text: str) -> bool:
-    """Check if text contains RTL characters (Urdu/Arabic)"""
-    if not text:
-        return False
-    for ch in str(text):
-        cp = ord(ch)
-        if (0x0600 <= cp <= 0x06FF or
-            0x0750 <= cp <= 0x077F or
-            0xFB50 <= cp <= 0xFDFF or
-            0xFE70 <= cp <= 0xFEFF):
-            return True
-    return False
-
-
-def _shape(text: str) -> str:
-    """Reshape + bidi Urdu/Arabic. Call ONCE per string. No-op for Latin."""
-    t = str(text).strip()
-    if not t or not _is_rtl(t):
-        return t
-    try:
-        return get_display(arabic_reshaper.reshape(t))
-    except Exception:
-        return t
+    return text
 
 
 def fmt(value) -> str:
@@ -163,10 +37,6 @@ def fmt(value) -> str:
     except Exception:
         return str(value)
 
-
-# ═══════════════════════════════════════════════════════════════════
-# FORECAST ENGINE - FIXED
-# ═══════════════════════════════════════════════════════════════════
 
 class SalesForecastEngine:
     def __init__(self, sales_data: List[Dict], forecast_days: int):
@@ -181,14 +51,20 @@ class SalesForecastEngine:
     
     def validate_data(self) -> Tuple[bool, str]:
         """Validate if data is sufficient for forecasting"""
-        unique_items = set(s.get('item_name') for s in self.sales_data if s.get('item_name'))
-        total_sales = len(self.sales_data)
+        # Count items with sufficient sales (3+ records)
+        item_sales_count = defaultdict(int)
+        for sale in self.sales_data:
+            item_sales_count[sale['item_name']] += 1
         
-        # Less strict validation - just warn if not enough data
-        if len(unique_items) < 2:
-            return False, f"کم از کم 2 مختلف اشیاء کی ضرورت ہے۔ موجودہ: {len(unique_items)}"
-        if total_sales < 3:
-            return False, f"کم از کم 3 سیلز ریکارڈ کی ضرورت ہے۔ موجودہ: {total_sales}"
+        valid_items = {item for item, count in item_sales_count.items() if count >= 3}
+        
+        if len(valid_items) < 2:
+            return False, f"کم از کم 2 مختلف اشیاء کی ضرورت ہے جن کی کم از کم 3 سیلز ہوں۔ موجودہ: {len(valid_items)} اشیاء جن کی 3+ سیلز ہیں"
+        
+        total_sales = len(self.sales_data)
+        if total_sales < 5:
+            return False, f"کم از کم 5 سیلز ریکارڈ کی ضرورت ہے۔ موجودہ: {total_sales}"
+        
         return True, "OK"
     
     def prepare_item_data(self, item_sales: List[Dict]) -> pd.DataFrame:
@@ -202,9 +78,30 @@ class SalesForecastEngine:
         df = df.sort_values('ds')
         return df
     
+    def calculate_trend_description(self, change_pct: float, current_avg: float, forecast_avg: float) -> str:
+        """Generate detailed trend description in Urdu"""
+        if change_pct > 15:
+            return f"تیزی سے بڑھ رہی ہے - {change_pct:.1f}% اضافہ متوقع (موجودہ: {current_avg:.1f} → متوقع: {forecast_avg:.1f})"
+        elif change_pct > 5:
+            return f"آہستہ بڑھ رہی ہے - {change_pct:.1f}% اضافہ متوقع (موجودہ: {current_avg:.1f} → متوقع: {forecast_avg:.1f})"
+        elif change_pct < -15:
+            return f"تیزی سے گھٹ رہی ہے - {abs(change_pct):.1f}% کمی متوقع (موجودہ: {current_avg:.1f} → متوقع: {forecast_avg:.1f})"
+        elif change_pct < -5:
+            return f"آہستہ گھٹ رہی ہے - {abs(change_pct):.1f}% کمی متوقع (موجودہ: {current_avg:.1f} → متوقع: {forecast_avg:.1f})"
+        else:
+            return f"مستحکم ہے - صرف {abs(change_pct):.1f}% تبدیلی متوقع (موجودہ: {current_avg:.1f} → متوقع: {forecast_avg:.1f})"
+    
+    def has_sufficient_data(self, item_sales: List[Dict]) -> bool:
+        """Check if item has at least 3 sales records"""
+        return len(item_sales) >= 3
+    
     def forecast_item(self, item_name: str, item_sales: List[Dict]) -> Dict:
-        """Generate forecast for a single item"""
+        """Generate forecast for a single item (only if 3+ sales)"""
         try:
+            # Skip items with less than 3 sales
+            if not self.has_sufficient_data(item_sales):
+                return None
+            
             df = self.prepare_item_data(item_sales)
             if len(df) < 2:
                 return None
@@ -214,14 +111,12 @@ class SalesForecastEngine:
             current_avg = recent_data['y'].mean() if len(recent_data) > 0 else df['y'].mean()
             
             if current_avg == 0:
-                # Use quantity from sales
                 current_avg = sum(s['quantity_sold'] for s in item_sales) / len(item_sales)
                 if current_avg == 0:
                     return None
             
-            # Calculate trend
+            # Calculate trend with linear regression
             if len(df) >= 3:
-                # Calculate linear trend
                 x = np.arange(len(df))
                 y = df['y'].values
                 slope = np.polyfit(x, y, 1)[0]
@@ -229,7 +124,6 @@ class SalesForecastEngine:
                 forecast_avg = current_avg + (trend_per_day * self.forecast_days)
                 forecast_avg = max(0, forecast_avg)
             else:
-                # Simple average for less data
                 forecast_avg = current_avg
             
             # Determine trend based on threshold
@@ -242,14 +136,23 @@ class SalesForecastEngine:
             else:
                 trend_type = 'stable'
             
+            # Calculate total sales and other metrics
+            total_quantity = sum(s['quantity_sold'] for s in item_sales)
+            total_revenue = sum(s['total_amount'] for s in item_sales)
+            avg_price = total_revenue / total_quantity if total_quantity > 0 else 0
+            
             return {
                 'item_name': item_name,
                 'trend': trend_type,
                 'change_percentage': abs(change_pct),
                 'current_avg': current_avg,
                 'forecast_avg': forecast_avg,
-                'total_sales': sum(s['quantity_sold'] for s in item_sales),
-                'unit': item_sales[0].get('item_unit', 'عدد')
+                'total_sales': total_quantity,
+                'total_revenue': total_revenue,
+                'avg_price': avg_price,
+                'unit': item_sales[0].get('item_unit', 'عدد'),
+                'sales_count': len(item_sales),
+                'trend_description': self.calculate_trend_description(change_pct, current_avg, forecast_avg)
             }
             
         except Exception as e:
@@ -257,424 +160,426 @@ class SalesForecastEngine:
             return None
     
     def run_forecast(self) -> Dict:
-        """Run forecast for all items"""
+        """Run forecast for all items (only items with 3+ sales)"""
         item_sales_map = defaultdict(list)
         for sale in self.sales_data:
             item_sales_map[sale['item_name']].append(sale)
         
+        skipped_items = []
         for item_name, item_sales in item_sales_map.items():
-            result = self.forecast_item(item_name, item_sales)
-            if result:
-                self.forecast_results[result['trend']].append(result)
+            if self.has_sufficient_data(item_sales):
+                result = self.forecast_item(item_name, item_sales)
+                if result:
+                    self.forecast_results[result['trend']].append(result)
+            else:
+                skipped_items.append(f"{item_name} ({len(item_sales)} سیلز)")
+        
+        if skipped_items:
+            print(f"⚠️ مندرجہ ذیل اشیاء کو چھوڑ دیا گیا (3 سے کم سیلز): {', '.join(skipped_items[:5])}")
         
         # Sort by change percentage
         self.forecast_results['increasing'].sort(key=lambda x: x['change_percentage'], reverse=True)
         self.forecast_results['decreasing'].sort(key=lambda x: x['change_percentage'], reverse=True)
+        self.forecast_results['stable'].sort(key=lambda x: x['change_percentage'], reverse=True)
         
         return self.forecast_results
 
-
-# ═══════════════════════════════════════════════════════════════════
-# CHART GENERATION (FIXED WITH UNICODE FONT)
-# ═══════════════════════════════════════════════════════════════════
-
-class ForecastChartGenerator:
-    def __init__(self, output_folder: str):
-        self.output_folder = output_folder
-        os.makedirs(output_folder, exist_ok=True)
-        plt.style.use('default')
-        
-        # Set matplotlib to use our Unicode font globally
-        plt.rcParams['font.family'] = 'sans-serif'
-        plt.rcParams['font.sans-serif'] = [_unicode_mpl.get_name()]
-    
-    def create_summary_chart(self, forecasts: Dict) -> str:
-        """Create summary pie chart with Urdu labels"""
-        counts = {
-            'بڑھنے والی': len(forecasts.get('increasing', [])),
-            'گھٹنے والی': len(forecasts.get('decreasing', [])),
-            'مستحکم': len(forecasts.get('stable', []))
-        }
-        counts = {k: v for k, v in counts.items() if v > 0}
-        
-        fig, ax = plt.subplots(figsize=(8, 6))
-        
-        if counts:
-            colors_list = ['#2ecc71', '#e74c3c', '#95a5a6']
-            wedges, texts, autotexts = ax.pie(
-                counts.values(),
-                labels=[_shape(label) for label in counts.keys()],
-                autopct='%1.1f%%',
-                colors=colors_list[:len(counts)],
-                startangle=90,
-                textprops={'fontproperties': _unicode_mpl, 'fontsize': 11}
-            )
-            for autotext in autotexts:
-                autotext.set_color('white')
-                autotext.set_fontsize(11)
-                autotext.set_fontproperties(_unicode_mpl)
-            for text in texts:
-                text.set_fontproperties(_unicode_mpl)
-        else:
-            ax.text(0.5, 0.5, _shape('کافی ڈیٹا موجود نہیں ہے'), 
-                   ha='center', va='center', fontsize=14,
-                   fontproperties=_unicode_mpl)
-        
-        ax.set_title(_shape('فروخت کی پیشن گوئی کا خلاصہ'), 
-                    fontproperties=_unicode_mpl, fontsize=14, fontweight='bold', pad=20)
-        
-        path = os.path.join(self.output_folder, 'summary_pie.png')
-        plt.tight_layout()
-        plt.savefig(path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        return path
-    
-    def create_trend_chart(self, forecasts: Dict, trend_type: str) -> str:
-        """Create horizontal bar chart for trends"""
-        items = forecasts.get(trend_type, [])[:8]
-        if not items:
-            return None
-        
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        names = [item['item_name'][:25] for item in items]
-        changes = [item['change_percentage'] for item in items]
-        
-        # Shape names if they contain Urdu
-        shaped_names = [_shape(name) if _is_rtl(name) else name for name in names]
-        
-        if trend_type == 'increasing':
-            bars = ax.barh(range(len(names)), changes, color='#2ecc71')
-            xlabel = _shape('متوقع اضافہ (%)')
-            title = _shape('سب سے زیادہ فروخت بڑھنے والی اشیاء')
-            sign = '+'
-        else:
-            bars = ax.barh(range(len(names)), changes, color='#e74c3c')
-            xlabel = _shape('متوقع کمی (%)')
-            title = _shape('سب سے زیادہ فروخت گھٹنے والی اشیاء')
-            sign = '-'
-        
-        ax.set_yticks(range(len(names)))
-        ax.set_yticklabels(shaped_names, fontproperties=_unicode_mpl, fontsize=10)
-        ax.set_xlabel(xlabel, fontproperties=_unicode_mpl, fontsize=11)
-        ax.set_title(title, fontproperties=_unicode_mpl, fontsize=14, fontweight='bold')
-        ax.axvline(x=0, color='gray', linestyle='--', alpha=0.5)
-        ax.grid(axis='x', alpha=0.3)
-        
-        for i, (bar, change) in enumerate(zip(bars, changes)):
-            ax.text(bar.get_width() + 0.5, bar.get_y() + bar.get_height()/2,
-                   f'{sign}{change:.1f}%', va='center', fontsize=9, fontweight='bold')
-        
-        plt.tight_layout()
-        path = os.path.join(self.output_folder, f'{trend_type}_items.png')
-        plt.savefig(path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        return path
-
-
-# ═══════════════════════════════════════════════════════════════════
-# PDF GENERATION (FIXED WITH UNICODE FONT)
-# ═══════════════════════════════════════════════════════════════════
-
-class ForecastPDFGenerator:
-    def __init__(self, output_path: str):
-        self.output_path = output_path
-    
-    def _create_styles(self):
-        return {
-            'title': ParagraphStyle('Title', fontName=UNICODE_FONT, fontSize=20, 
-                                    alignment=TA_CENTER, spaceAfter=20, spaceBefore=10),
-            'heading': ParagraphStyle('Heading', fontName=UNICODE_FONT, fontSize=14, 
-                                      textColor=colors.HexColor('#2C7DA0'), alignment=TA_CENTER, 
-                                      spaceAfter=12, spaceBefore=15),
-            'description': ParagraphStyle('Desc', fontName=UNICODE_FONT, fontSize=10,
-                                          textColor=colors.HexColor('#5A6B7A'), alignment=TA_LEFT,
-                                          spaceAfter=8, leading=16),
-            'table_header': ParagraphStyle('TH', fontName=UNICODE_FONT, fontSize=11, 
-                                           textColor=colors.white, alignment=TA_CENTER),
-            'table_cell': ParagraphStyle('TC', fontName=UNICODE_FONT, fontSize=10, alignment=TA_CENTER)
-        }
-    
-    def _p(self, text: str, style_name: str, styles: dict) -> Paragraph:
-        """Create paragraph with proper shaping for Urdu"""
-        txt = str(text).strip()
-        display = _shape(txt) if _is_rtl(txt) else txt
-        return Paragraph(display, styles[style_name])
-    
-    def generate_report(self, forecasts: Dict, charts: Dict, report_date: str, 
-                       forecast_days: int, total_items: int) -> str:
-        """Generate PDF report"""
-        styles = self._create_styles()
-        doc = SimpleDocTemplate(self.output_path, pagesize=A4,
-                                rightMargin=55, leftMargin=55,
-                                topMargin=55, bottomMargin=55)
-        story = []
-        
-        # Title
-        story.append(self._p(f"{forecast_days} دن کی فروخت کی پیشن گوئی رپورٹ", 'title', styles))
-        story.append(Spacer(1, 0.1 * inch))
-        story.append(self._p(f"تاریخ: {report_date}", 'description', styles))
-        story.append(Spacer(1, 0.2 * inch))
-        
-        # Summary
-        story.append(self._p("رپورٹ کا خلاصہ", 'heading', styles))
-        summary_text = f"""
-        اس رپورٹ میں کل {total_items} اشیاء کا تجزیہ کیا گیا ہے۔ 
-        ان میں سے {len(forecasts.get('increasing', []))} اشیاء کی فروخت میں اضافہ متوقع ہے، 
-        {len(forecasts.get('decreasing', []))} اشیاء کی فروخت میں کمی متوقع ہے۔
-        """
-        story.append(self._p(summary_text, 'description', styles))
-        story.append(Spacer(1, 0.2 * inch))
-        
-        # Summary Chart
-        if charts.get('summary_pie') and os.path.exists(charts['summary_pie']):
-            story.append(Image(charts['summary_pie'], width=5*inch, height=4*inch))
-            story.append(Spacer(1, 0.1 * inch))
-            pie_desc = "یہ چارٹ ظاہر کرتا ہے کہ کتنے فیصد اشیاء کی فروخت میں اضافہ، کمی متوقع ہے۔"
-            story.append(self._p(pie_desc, 'description', styles))
-            story.append(Spacer(1, 0.2 * inch))
-        
-        # Increasing Items (Top 5)
-        if forecasts.get('increasing'):
-            story.append(PageBreak())
-            story.append(self._p("بڑھنے والی اشیاء (ٹاپ 5)", 'heading', styles))
-            inc_desc = f"""
-            درج ذیل {min(5, len(forecasts['increasing']))} اشیاء کی فروخت میں اگلے {forecast_days} دنوں میں 
-            اضافہ متوقع ہے۔ ان اشیاء پر خصوصی توجہ دیں۔
-            """
-            story.append(self._p(inc_desc, 'description', styles))
-            story.append(Spacer(1, 0.1 * inch))
-            
-            # Table
-            table_data = [[
-                self._p("درجہ", 'table_header', styles),
-                self._p("آئٹم کا نام", 'table_header', styles),
-                self._p("موجودہ اوسط", 'table_header', styles),
-                self._p("متوقع اوسط", 'table_header', styles),
-                self._p("متوقع اضافہ", 'table_header', styles)
-            ]]
-            
-            for idx, item in enumerate(forecasts['increasing'][:5], 1):
-                table_data.append([
-                    self._p(str(idx), 'table_cell', styles),
-                    self._p(item['item_name'], 'table_cell', styles),
-                    self._p(f"{item['current_avg']:.1f} {item.get('unit', '')}", 'table_cell', styles),
-                    self._p(f"{item['forecast_avg']:.1f} {item.get('unit', '')}", 'table_cell', styles),
-                    self._p(f"+{item['change_percentage']:.1f}%", 'table_cell', styles)
-                ])
-            
-            col_widths = [0.6*inch, 2.5*inch, 1.2*inch, 1.2*inch, 1.2*inch]
-            table = Table(table_data, colWidths=col_widths, repeatRows=1)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#2ecc71')),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ]))
-            story.append(table)
-            story.append(Spacer(1, 0.2 * inch))
-            
-            # Chart
-            if charts.get('increasing_chart') and os.path.exists(charts['increasing_chart']):
-                story.append(Image(charts['increasing_chart'], width=6*inch, height=4*inch))
-        
-        # Decreasing Items (Top 5)
-        if forecasts.get('decreasing'):
-            story.append(PageBreak())
-            story.append(self._p("گھٹنے والی اشیاء (ٹاپ 5)", 'heading', styles))
-            dec_desc = f"""
-            درج ذیل {min(5, len(forecasts['decreasing']))} اشیاء کی فروخت میں اگلے {forecast_days} دنوں میں 
-            کمی متوقع ہے۔ ان اشیاء پر پروموشنز دیں۔
-            """
-            story.append(self._p(dec_desc, 'description', styles))
-            story.append(Spacer(1, 0.1 * inch))
-            
-            # Table
-            table_data = [[
-                self._p("درجہ", 'table_header', styles),
-                self._p("آئٹم کا نام", 'table_header', styles),
-                self._p("موجودہ اوسط", 'table_header', styles),
-                self._p("متوقع اوسط", 'table_header', styles),
-                self._p("متوقع کمی", 'table_header', styles)
-            ]]
-            
-            for idx, item in enumerate(forecasts['decreasing'][:5], 1):
-                table_data.append([
-                    self._p(str(idx), 'table_cell', styles),
-                    self._p(item['item_name'], 'table_cell', styles),
-                    self._p(f"{item['current_avg']:.1f} {item.get('unit', '')}", 'table_cell', styles),
-                    self._p(f"{item['forecast_avg']:.1f} {item.get('unit', '')}", 'table_cell', styles),
-                    self._p(f"-{item['change_percentage']:.1f}%", 'table_cell', styles)
-                ])
-            
-            table = Table(table_data, colWidths=col_widths, repeatRows=1)
-            table.setStyle(TableStyle([
-                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#e74c3c')),
-                ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-                ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-                ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-            ]))
-            story.append(table)
-            story.append(Spacer(1, 0.2 * inch))
-            
-            # Chart
-            if charts.get('decreasing_chart') and os.path.exists(charts['decreasing_chart']):
-                story.append(Image(charts['decreasing_chart'], width=6*inch, height=4*inch))
-        
-        doc.build(story)
-        return self.output_path
-
-
-# ═══════════════════════════════════════════════════════════════════
-# EXCEL GENERATION - FIXED
-# ═══════════════════════════════════════════════════════════════════
 
 class ForecastExcelGenerator:
     def __init__(self, output_path: str):
         self.output_path = output_path
     
-    def generate_excel(self, forecasts: Dict, forecast_days: int) -> str:
-        from openpyxl import Workbook
-        from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+    def generate_excel(self, forecasts: Dict, forecast_days: int, total_items: int, 
+                       total_quantity: float, total_revenue: float, skipped_items: List[str] = None) -> str:
+        """Generate comprehensive Excel forecast report"""
         
         wb = Workbook()
         
-        # Header style
-        header_font = Font(bold=True, size=12, color="FFFFFF")
+        # Style definitions
+        header_font = Font(bold=True, size=12, color="FFFFFF", name="Arial")
         header_fill = PatternFill(start_color="2C7DA0", end_color="2C7DA0", fill_type="solid")
-        header_align = Alignment(horizontal="center", vertical="center")
+        subheader_fill = PatternFill(start_color="E8F4F8", end_color="E8F4F8", fill_type="solid")
+        header_alignment = Alignment(horizontal="center", vertical="center")
+        cell_alignment_center = Alignment(horizontal="center", vertical="center")
+        cell_alignment_right = Alignment(horizontal="right", vertical="center")
+        cell_alignment_left = Alignment(horizontal="left", vertical="center")
         
-        # Cell style
-        cell_align = Alignment(horizontal="center", vertical="center")
+        border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
         
-        # Sheet 1: Increasing Items
-        if forecasts.get('increasing'):
-            ws1 = wb.active
-            ws1.title = "بڑھنے والی اشیاء"
-            headers = ["درجہ", "آئٹم کا نام", "موجودہ اوسط", "متوقع اوسط", "متوقع اضافہ (%)", "یونٹ", "کل فروخت"]
-            ws1.append(headers)
-            
-            # Style headers
-            for col in range(1, len(headers)+1):
-                cell = ws1.cell(row=1, column=col)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = header_align
-            
-            # Add data
-            for idx, item in enumerate(forecasts['increasing'], 1):
-                ws1.append([
-                    idx, 
-                    item['item_name'], 
-                    f"{item['current_avg']:.1f}", 
-                    f"{item['forecast_avg']:.1f}", 
-                    f"+{item['change_percentage']:.1f}%",
-                    item.get('unit', '-'),
-                    fmt(item['total_sales'])
-                ])
-                # Style data cells
-                for col in range(1, 8):
-                    ws1.cell(row=idx+1, column=col).alignment = cell_align
-            
-            # Auto-adjust column widths
-            for col in ws1.columns:
-                max_length = 0
-                col_letter = col[0].column_letter
-                for cell in col:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 30)
-                ws1.column_dimensions[col_letter].width = adjusted_width
+        # =============================================================
+        # SHEET 1: پیشن گوئی کا خلاصہ (Forecast Summary)
+        # =============================================================
+        ws1 = wb.active
+        ws1.title = "پیشن گوئی کا خلاصہ"
         
-        # Sheet 2: Decreasing Items
-        if forecasts.get('decreasing'):
-            ws2 = wb.create_sheet("گھٹنے والی اشیاء")
-            headers = ["درجہ", "آئٹم کا نام", "موجودہ اوسط", "متوقع اوسط", "متوقع کمی (%)", "یونٹ", "کل فروخت"]
-            ws2.append(headers)
-            
-            # Style headers
-            for col in range(1, len(headers)+1):
-                cell = ws2.cell(row=1, column=col)
-                cell.font = header_font
-                cell.fill = header_fill
-                cell.alignment = header_align
-            
-            # Add data
-            for idx, item in enumerate(forecasts['decreasing'], 1):
-                ws2.append([
-                    idx, 
-                    item['item_name'], 
-                    f"{item['current_avg']:.1f}", 
-                    f"{item['forecast_avg']:.1f}", 
-                    f"-{item['change_percentage']:.1f}%",
-                    item.get('unit', '-'),
-                    fmt(item['total_sales'])
-                ])
-                for col in range(1, 8):
-                    ws2.cell(row=idx+1, column=col).alignment = cell_align
-            
-            # Auto-adjust column widths
-            for col in ws2.columns:
-                max_length = 0
-                col_letter = col[0].column_letter
-                for cell in col:
-                    try:
-                        if cell.value:
-                            max_length = max(max_length, len(str(cell.value)))
-                    except:
-                        pass
-                adjusted_width = min(max_length + 2, 30)
-                ws2.column_dimensions[col_letter].width = adjusted_width
+        # Header
+        ws1.merge_cells('A1:H1')
+        header_cell = ws1.cell(row=1, column=1)
+        header_cell.value = f"📊 فروخت کی پیشن گوئی رپورٹ - {datetime.now().strftime('%Y-%m-%d')}"
+        header_cell.font = Font(bold=True, size=16, color="1a5a7a", name="Arial")
+        header_cell.alignment = Alignment(horizontal="center", vertical="center")
         
-        # Sheet 3: Summary
-        ws3 = wb.create_sheet("خلاصہ")
-        ws3.append(["تفصیل", "تعداد", "فیصد"])
+        ws1.merge_cells('A2:H2')
+        subheader_cell = ws1.cell(row=2, column=1)
+        subheader_cell.value = f"اگلے {forecast_days} دنوں کے لیے فروخت کی پیشن گوئی (صرف ان اشیاء کا تجزیہ جن کی 3+ سیلز ہیں)"
+        subheader_cell.font = Font(size=10, italic=True, color="666666", name="Arial")
+        subheader_cell.alignment = Alignment(horizontal="center", vertical="center")
         
-        total = (len(forecasts.get('increasing', [])) + 
-                len(forecasts.get('decreasing', [])) + 
-                len(forecasts.get('stable', [])))
+        # Summary statistics
+        inc_count = len(forecasts.get('increasing', []))
+        dec_count = len(forecasts.get('decreasing', []))
+        stable_count = len(forecasts.get('stable', []))
+        analyzed_items = inc_count + dec_count + stable_count
         
-        if total > 0:
-            inc_count = len(forecasts.get('increasing', []))
-            dec_count = len(forecasts.get('decreasing', []))
-            
-            ws3.append(["بڑھنے والی اشیاء", inc_count, f"{inc_count/total*100:.1f}%"])
-            ws3.append(["گھٹنے والی اشیاء", dec_count, f"{dec_count/total*100:.1f}%"])
-            ws3.append(["مستحکم اشیاء", len(forecasts.get('stable', [])), f"{len(forecasts.get('stable', []))/total*100:.1f}%"])
+        summary_data = [
+            ["تفصیل (Description)", "تعداد (Count)", "فیصد (Percentage)", "نوٹس (Notes)"],
+            ["📈 بڑھنے والی اشیاء (Increasing Items)", inc_count, f"{(inc_count/analyzed_items*100):.1f}%" if analyzed_items > 0 else "0%", "ان اشیاء پر اسٹاک بڑھائیں"],
+            ["📉 گھٹنے والی اشیاء (Decreasing Items)", dec_count, f"{(dec_count/analyzed_items*100):.1f}%" if analyzed_items > 0 else "0%", "ان اشیاء پر پروموشن دیں"],
+            ["➡️ مستحکم اشیاء (Stable Items)", stable_count, f"{(stable_count/analyzed_items*100):.1f}%" if analyzed_items > 0 else "0%", "موجودہ حکمت عملی جاری رکھیں"],
+            ["✅ کل تجزیہ شدہ اشیاء (Total Analyzed Items)", analyzed_items, "100%", "جن کی 3+ سیلز ہیں"],
+        ]
         
-        ws3.append([])
-        ws3.append(["پیشن گوئی مدت", f"{forecast_days} دن"])
+        row = 4
+        for data_row in summary_data:
+            for col_idx, value in enumerate(data_row, 1):
+                cell = ws1.cell(row=row, column=col_idx)
+                cell.value = value
+                cell.border = border
+                
+                if row == 4:
+                    cell.font = header_font
+                    cell.fill = header_fill
+                    cell.alignment = header_alignment
+                else:
+                    if col_idx == 1:
+                        cell.font = Font(bold=True)
+                        cell.fill = subheader_fill
+                        cell.alignment = cell_alignment_left
+                    elif col_idx in [2, 3]:
+                        cell.alignment = cell_alignment_right
+                    else:
+                        cell.alignment = cell_alignment_left
+            row += 1
         
-        # Style summary sheet
-        for col in ws3.columns:
+        # Add note about skipped items
+        if skipped_items:
+            row += 1
+            ws1.merge_cells(f'A{row}:H{row}')
+            note_cell = ws1.cell(row=row, column=1)
+            note_cell.value = f"⚠️ نوٹ: {len(skipped_items)} اشیاء کو تجزیہ سے خارج کر دیا گیا کیونکہ ان کی 3 سے کم سیلز ہیں۔"
+            note_cell.font = Font(color="ef4444", size=9)
+            note_cell.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+            note_cell.alignment = Alignment(horizontal="center")
+        
+        # Overall forecast recommendation
+        row += 2
+        ws1.merge_cells(f'A{row}:H{row}')
+        rec_cell = ws1.cell(row=row, column=1)
+        
+        if analyzed_items == 0:
+            recommendation = f"⚠️ کوئی بھی آئٹم تجزیہ کے لیے موزوں نہیں ہے۔ براہ کرم مزید سیلز ریکارڈز شامل کریں (کم از کم 3 سیلز فی آئٹم)"
+        elif inc_count > dec_count:
+            recommendation = f"✅ مجموعی رجحان: بہتر ہے! {inc_count} اشیاء کی فروخت بڑھ رہی ہے۔ ان اشیاء پر اسٹاک بڑھانے کی تجویز ہے۔"
+        elif dec_count > inc_count:
+            recommendation = f"⚠️ مجموعی رجحان: تشویشناک ہے! {dec_count} اشیاء کی فروخت گھٹ رہی ہے۔ ان اشیاء پر پروموشن اور ڈسکاؤنٹ دیں۔"
+        else:
+            recommendation = f"➡️ مجموعی رجحان: مستحکم ہے۔ موجودہ حکمت عملی کو برقرار رکھیں۔"
+        
+        rec_cell.value = recommendation
+        rec_cell.font = Font(bold=True, size=11, color="2C7DA0")
+        rec_cell.fill = PatternFill(start_color="FFF3E0", end_color="FFF3E0", fill_type="solid")
+        rec_cell.alignment = Alignment(horizontal="center", vertical="center")
+        
+        # Auto-adjust columns
+        for col in ws1.columns:
             max_length = 0
-            col_letter = col[0].column_letter
+            column_letter = get_column_letter(col[0].column)
             for cell in col:
                 try:
-                    if cell.value:
-                        max_length = max(max_length, len(str(cell.value)))
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
                 except:
                     pass
-            ws3.column_dimensions[col_letter].width = min(max_length + 2, 20)
+            adjusted_width = min(max_length + 3, 40)
+            ws1.column_dimensions[column_letter].width = adjusted_width
+        
+        # =============================================================
+        # SHEET 2: بڑھنے والی اشیاء (Increasing Items)
+        # =============================================================
+        if forecasts.get('increasing'):
+            ws2 = wb.create_sheet("بڑھنے والی اشیاء")
+            
+            ws2.merge_cells('A1:H1')
+            header_cell2 = ws2.cell(row=1, column=1)
+            header_cell2.value = f"📈 بڑھنے والی اشیاء (ٹاپ {min(10, len(forecasts['increasing']))})"
+            header_cell2.font = Font(bold=True, size=16, color="10b981", name="Arial")
+            header_cell2.alignment = Alignment(horizontal="center", vertical="center")
+            
+            ws2.merge_cells('A2:H2')
+            subheader_cell2 = ws2.cell(row=2, column=1)
+            subheader_cell2.value = f"یہ اشیاء اگلے {forecast_days} دنوں میں فروخت میں اضافہ دکھائیں گی۔ ان پر اسٹاک بڑھانے کی تجویز ہے۔"
+            subheader_cell2.font = Font(size=10, italic=True, color="666666", name="Arial")
+            subheader_cell2.alignment = Alignment(horizontal="center", vertical="center")
+            
+            inc_headers = [
+                "درجہ", "آئٹم کا نام", "یونٹ", "موجودہ اوسط", "متوقع اوسط",
+                "متوقع اضافہ (%)", "تفصیلی تجزیہ", "تجاویز"
+            ]
+            
+            for col, header in enumerate(inc_headers, 1):
+                cell = ws2.cell(row=4, column=col)
+                cell.value = header
+                cell.font = header_font
+                cell.fill = PatternFill(start_color="10b981", end_color="10b981", fill_type="solid")
+                cell.alignment = header_alignment
+                cell.border = border
+            
+            for idx, item in enumerate(forecasts['increasing'][:10], 1):
+                row_num = 4 + idx
+                
+                if item['change_percentage'] > 15:
+                    recommendation = f"⚠️ بہت تیزی سے بڑھ رہی ہے! فوری طور پر اسٹاک ڈبل کریں"
+                elif item['change_percentage'] > 10:
+                    recommendation = f"👍 اچھی بڑھوتری! اسٹاک 50% بڑھائیں"
+                elif item['change_percentage'] > 5:
+                    recommendation = f"✅ معمولی اضافہ! اسٹاک 25% بڑھائیں"
+                else:
+                    recommendation = f"➡️ معمولی تبدیلی، موجودہ اسٹاک برقرار رکھیں"
+                
+                ws2.cell(row=row_num, column=1, value=idx)
+                ws2.cell(row=row_num, column=2, value=item['item_name'])
+                ws2.cell(row=row_num, column=3, value=item['unit'])
+                ws2.cell(row=row_num, column=4, value=round(item['current_avg'], 1))
+                ws2.cell(row=row_num, column=5, value=round(item['forecast_avg'], 1))
+                ws2.cell(row=row_num, column=6, value=f"+{item['change_percentage']:.1f}%")
+                ws2.cell(row=row_num, column=7, value=item['trend_description'])
+                ws2.cell(row=row_num, column=8, value=recommendation)
+                
+                for col in range(1, 9):
+                    cell = ws2.cell(row=row_num, column=col)
+                    cell.border = border
+                    if col in [4, 5, 6]:
+                        cell.alignment = cell_alignment_right
+                    elif col == 2:
+                        cell.alignment = cell_alignment_left
+                        cell.font = Font(bold=True)
+                    else:
+                        cell.alignment = cell_alignment_left
+                    
+                    if col == 6:
+                        cell.font = Font(bold=True, color="10b981")
+            
+            for col in ws2.columns:
+                max_length = 0
+                column_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    try:
+                        if cell.value and len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 3, 45)
+                ws2.column_dimensions[column_letter].width = adjusted_width
+        
+        # =============================================================
+        # SHEET 3: گھٹنے والی اشیاء (Decreasing Items)
+        # =============================================================
+        if forecasts.get('decreasing'):
+            ws3 = wb.create_sheet("گھٹنے والی اشیاء")
+            
+            ws3.merge_cells('A1:H1')
+            header_cell3 = ws3.cell(row=1, column=1)
+            header_cell3.value = f"📉 گھٹنے والی اشیاء (ٹاپ {min(10, len(forecasts['decreasing']))})"
+            header_cell3.font = Font(bold=True, size=16, color="ef4444", name="Arial")
+            header_cell3.alignment = Alignment(horizontal="center", vertical="center")
+            
+            ws3.merge_cells('A2:H2')
+            subheader_cell3 = ws3.cell(row=2, column=1)
+            subheader_cell3.value = f"یہ اشیاء اگلے {forecast_days} دنوں میں فروخت میں کمی دکھائیں گی۔ ان پر پروموشن اور ڈسکاؤنٹ دیں۔"
+            subheader_cell3.font = Font(size=10, italic=True, color="666666", name="Arial")
+            subheader_cell3.alignment = Alignment(horizontal="center", vertical="center")
+            
+            dec_headers = [
+                "درجہ", "آئٹم کا نام", "یونٹ", "موجودہ اوسط", "متوقع اوسط",
+                "متوقع کمی (%)", "تفصیلی تجزیہ", "تجاویز"
+            ]
+            
+            for col, header in enumerate(dec_headers, 1):
+                cell = ws3.cell(row=4, column=col)
+                cell.value = header
+                cell.font = header_font
+                cell.fill = PatternFill(start_color="ef4444", end_color="ef4444", fill_type="solid")
+                cell.alignment = header_alignment
+                cell.border = border
+            
+            for idx, item in enumerate(forecasts['decreasing'][:10], 1):
+                row_num = 4 + idx
+                
+                if item['change_percentage'] > 15:
+                    recommendation = f"⚠️ بہت تیزی سے گر رہی ہے! فوری پروموشن اور 30% ڈسکاؤنٹ دیں"
+                elif item['change_percentage'] > 10:
+                    recommendation = f"👍 تشویشناک کمی! پروموشن اور 20% ڈسکاؤنٹ دیں"
+                elif item['change_percentage'] > 5:
+                    recommendation = f"✅ معمولی کمی! 10% ڈسکاؤنٹ یا BOGO آفر دیں"
+                else:
+                    recommendation = f"➡️ معمولی تبدیلی، وجہ معلوم کریں"
+                
+                ws3.cell(row=row_num, column=1, value=idx)
+                ws3.cell(row=row_num, column=2, value=item['item_name'])
+                ws3.cell(row=row_num, column=3, value=item['unit'])
+                ws3.cell(row=row_num, column=4, value=round(item['current_avg'], 1))
+                ws3.cell(row=row_num, column=5, value=round(item['forecast_avg'], 1))
+                ws3.cell(row=row_num, column=6, value=f"-{item['change_percentage']:.1f}%")
+                ws3.cell(row=row_num, column=7, value=item['trend_description'])
+                ws3.cell(row=row_num, column=8, value=recommendation)
+                
+                for col in range(1, 9):
+                    cell = ws3.cell(row=row_num, column=col)
+                    cell.border = border
+                    if col in [4, 5, 6]:
+                        cell.alignment = cell_alignment_right
+                    elif col == 2:
+                        cell.alignment = cell_alignment_left
+                        cell.font = Font(bold=True)
+                    else:
+                        cell.alignment = cell_alignment_left
+                    
+                    if col == 6:
+                        cell.font = Font(bold=True, color="ef4444")
+            
+            for col in ws3.columns:
+                max_length = 0
+                column_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    try:
+                        if cell.value and len(str(cell.value)) > max_length:
+                            max_length = len(str(cell.value))
+                    except:
+                        pass
+                adjusted_width = min(max_length + 3, 45)
+                ws3.column_dimensions[column_letter].width = adjusted_width
+        
+        # =============================================================
+        # SHEET 4: تمام اشیاء کا مکمل تجزیہ (Complete Analysis)
+        # =============================================================
+        ws4 = wb.create_sheet("تمام اشیاء کا مکمل تجزیہ")
+        
+        ws4.merge_cells('A1:I1')
+        header_cell4 = ws4.cell(row=1, column=1)
+        header_cell4.value = "📋 تمام اشیاء کا مکمل پیشن گوئی تجزیہ"
+        header_cell4.font = Font(bold=True, size=16, color="1a5a7a", name="Arial")
+        header_cell4.alignment = Alignment(horizontal="center", vertical="center")
+        
+        ws4.merge_cells('A2:I2')
+        subheader_cell4 = ws4.cell(row=2, column=1)
+        subheader_cell4.value = "ہر آئٹم کے لیے تفصیلی پیشن گوئی اور تجاویز (صرف وہ اشیاء جن کی 3+ سیلز ہیں)"
+        subheader_cell4.font = Font(size=10, italic=True, color="666666", name="Arial")
+        subheader_cell4.alignment = Alignment(horizontal="center", vertical="center")
+        
+        all_headers = [
+            "درجہ", "آئٹم کا نام", "رجحان", "موجودہ اوسط", "متوقع اوسط",
+            "تبدیلی (%)", "کل فروخت", "تفصیلی تجزیہ", "تجاویز"
+        ]
+        
+        for col, header in enumerate(all_headers, 1):
+            cell = ws4.cell(row=4, column=col)
+            cell.value = header
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = header_alignment
+            cell.border = border
+        
+        all_items = []
+        for item in forecasts.get('increasing', []):
+            all_items.append({**item, 'trend_urdu': '📈 بڑھنے والی', 'trend_color': '10b981'})
+        for item in forecasts.get('decreasing', []):
+            all_items.append({**item, 'trend_urdu': '📉 گھٹنے والی', 'trend_color': 'ef4444'})
+        for item in forecasts.get('stable', []):
+            all_items.append({**item, 'trend_urdu': '➡️ مستحکم', 'trend_color': 'f59e0b'})
+        
+        all_items.sort(key=lambda x: x['change_percentage'], reverse=True)
+        
+        for idx, item in enumerate(all_items, 1):
+            row_num = 4 + idx
+            
+            if item['trend'] == 'increasing':
+                if item['change_percentage'] > 15:
+                    recommendation = "⚠️ فوری اسٹاک ڈبل کریں"
+                elif item['change_percentage'] > 10:
+                    recommendation = "👍 اسٹاک 50% بڑھائیں"
+                elif item['change_percentage'] > 5:
+                    recommendation = "✅ اسٹاک 25% بڑھائیں"
+                else:
+                    recommendation = "موجودہ اسٹاک برقرار رکھیں"
+            elif item['trend'] == 'decreasing':
+                if item['change_percentage'] > 15:
+                    recommendation = "⚠️ فوری پروموشن + 30% ڈسکاؤنٹ"
+                elif item['change_percentage'] > 10:
+                    recommendation = "👍 پروموشن + 20% ڈسکاؤنٹ"
+                elif item['change_percentage'] > 5:
+                    recommendation = "✅ 10% ڈسکاؤنٹ یا BOGO"
+                else:
+                    recommendation = "وجہ معلوم کریں"
+            else:
+                recommendation = "موجودہ حکمت عملی برقرار رکھیں"
+            
+            ws4.cell(row=row_num, column=1, value=idx)
+            ws4.cell(row=row_num, column=2, value=item['item_name'])
+            ws4.cell(row=row_num, column=3, value=item['trend_urdu'])
+            ws4.cell(row=row_num, column=4, value=round(item['current_avg'], 1))
+            ws4.cell(row=row_num, column=5, value=round(item['forecast_avg'], 1))
+            
+            change_sign = "+" if item['trend'] == 'increasing' else "-"
+            ws4.cell(row=row_num, column=6, value=f"{change_sign}{item['change_percentage']:.1f}%")
+            ws4.cell(row=row_num, column=7, value=int(item['total_sales']))
+            ws4.cell(row=row_num, column=8, value=item['trend_description'])
+            ws4.cell(row=row_num, column=9, value=recommendation)
+            
+            for col in range(1, 10):
+                cell = ws4.cell(row=row_num, column=col)
+                cell.border = border
+                if col in [4, 5, 6, 7]:
+                    cell.alignment = cell_alignment_right
+                elif col == 2:
+                    cell.alignment = cell_alignment_left
+                    cell.font = Font(bold=True)
+                else:
+                    cell.alignment = cell_alignment_left
+                
+                if col == 3:
+                    cell.font = Font(bold=True, color=item['trend_color'])
+                elif col == 6:
+                    if item['trend'] == 'increasing':
+                        cell.font = Font(bold=True, color="10b981")
+                    elif item['trend'] == 'decreasing':
+                        cell.font = Font(bold=True, color="ef4444")
+        
+        for col in ws4.columns:
+            max_length = 0
+            column_letter = get_column_letter(col[0].column)
+            for cell in col:
+                try:
+                    if cell.value and len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 3, 45)
+            ws4.column_dimensions[column_letter].width = adjusted_width
         
         wb.save(self.output_path)
         return self.output_path
 
 
-# ═══════════════════════════════════════════════════════════════════
-# MAIN FORECAST REPORT FUNCTION
-# ═══════════════════════════════════════════════════════════════════
-
 async def generate_forecast_report(report_id: str, sales_data: List[Dict], forecast_days: int) -> Dict:
-    """Main function to generate complete forecast report"""
+    """Main function to generate complete forecast report (Excel only)"""
     
     try:
-        print(_urdu_msg(f"📊 پیشن گوئی رپورٹ تیار کر رہا ہے: {len(sales_data)} سیلز ریکارڈ, {forecast_days} دن"))
+        print(f"📊 پیشن گوئی رپورٹ تیار کر رہا ہے: {len(sales_data)} سیلز ریکارڈ, {forecast_days} دن")
         
         # Create output folder
         output_folder = f"forecast_reports/report_{report_id}"
@@ -686,88 +591,92 @@ async def generate_forecast_report(report_id: str, sales_data: List[Dict], forec
         # Validate data
         is_valid, message = forecaster.validate_data()
         if not is_valid:
-            print(_urdu_msg(f"❌ {message}"))
+            print(f"❌ {message}")
             return {"error": True, "message": message}
         
         # Generate forecasts
         forecasts = forecaster.run_forecast()
         
-        print(_urdu_msg(f"📈 پیشن گوئی کے نتائج: بڑھنے والی: {len(forecasts['increasing'])}, گھٹنے والی: {len(forecasts['decreasing'])}, مستحکم: {len(forecasts['stable'])}"))
+        inc_count = len(forecasts.get('increasing', []))
+        dec_count = len(forecasts.get('decreasing', []))
+        stable_count = len(forecasts.get('stable', []))
+        total_items = inc_count + dec_count + stable_count
         
-        # Generate charts
-        chart_gen = ForecastChartGenerator(output_folder)
-        charts = {}
+        # Find skipped items
+        item_sales_count = defaultdict(int)
+        for sale in sales_data:
+            item_sales_count[sale['item_name']] += 1
+        skipped_items = [f"{item} ({count} سیلز)" for item, count in item_sales_count.items() if count < 3]
         
-        # Summary pie chart
-        charts['summary_pie'] = chart_gen.create_summary_chart(forecasts)
-        print(_urdu_msg("✅ خلاصہ چارٹ تیار"))
+        # Calculate total quantities
+        total_quantity = sum(s['quantity_sold'] for s in sales_data)
+        total_revenue = sum(s['total_amount'] for s in sales_data)
         
-        # Trend charts
-        if forecasts.get('increasing'):
-            charts['increasing_chart'] = chart_gen.create_trend_chart(forecasts, 'increasing')
-            print(_urdu_msg("✅ بڑھنے والی اشیاء کا چارٹ تیار"))
-        if forecasts.get('decreasing'):
-            charts['decreasing_chart'] = chart_gen.create_trend_chart(forecasts, 'decreasing')
-            print(_urdu_msg("✅ گھٹنے والی اشیاء کا چارٹ تیار"))
+        print(f"📈 پیشن گوئی کے نتائج: بڑھنے والی: {inc_count}, گھٹنے والی: {dec_count}, مستحکم: {stable_count}")
+        if skipped_items:
+            print(f"⚠️ چھوڑی گئی اشیاء (3 سے کم سیلز): {len(skipped_items)}")
         
-        # Generate PDF
-        pdf_path = os.path.join(output_folder, f"forecast_report_{forecast_days}days.pdf")
-        pdf_gen = ForecastPDFGenerator(pdf_path)
-        report_date = datetime.now().strftime("%Y-%m-%d %H:%M")
-        total_items = len(forecasts['increasing']) + len(forecasts['decreasing']) + len(forecasts['stable'])
-        pdf_gen.generate_report(forecasts, charts, report_date, forecast_days, total_items)
-        print(_urdu_msg(f"✅ PDF رپورٹ محفوظ: {pdf_path}"))
-        
-        # Generate Excel
-        excel_path = os.path.join(output_folder, f"forecast_data_{forecast_days}days.xlsx")
+        # Generate Excel only
+        excel_path = os.path.join(output_folder, f"forecast_report_{forecast_days}days.xlsx")
         excel_gen = ForecastExcelGenerator(excel_path)
-        excel_gen.generate_excel(forecasts, forecast_days)
-        print(_urdu_msg(f"✅ ایکسل فائل محفوظ: {excel_path}"))
+        excel_gen.generate_excel(forecasts, forecast_days, total_items, total_quantity, total_revenue, skipped_items)
+        print(f"✅ ایکسل فائل محفوظ: {excel_path}")
         
-        # Generate CSV
-        csv_path = os.path.join(output_folder, f"forecast_export_{forecast_days}days.csv")
-        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(["Item Name", "Trend", "Current Avg", "Forecast Avg", "Change %", "Unit", "Total Sales"])
-            for item in forecasts.get('increasing', []):
-                writer.writerow([item['item_name'], "Increasing", f"{item['current_avg']:.2f}", 
-                               f"{item['forecast_avg']:.2f}", f"+{item['change_percentage']:.1f}%",
-                               item.get('unit', ''), item['total_sales']])
-            for item in forecasts.get('decreasing', []):
-                writer.writerow([item['item_name'], "Decreasing", f"{item['current_avg']:.2f}", 
-                               f"{item['forecast_avg']:.2f}", f"-{item['change_percentage']:.1f}%",
-                               item.get('unit', ''), item['total_sales']])
-        print(_urdu_msg(f"✅ CSV فائل محفوظ: {csv_path}"))
-        
-        print(_urdu_msg("🎉 تمام فائلیں کامیابی سے تیار ہو گئیں"))
+        print("🎉 تمام فائلیں کامیابی سے تیار ہو گئیں")
         
         return {
             "error": False,
             "report_id": report_id,
             "output_folder": output_folder,
-            "pdf_path": pdf_path,
             "excel_path": excel_path,
-            "csv_path": csv_path,
             "forecast_summary": {
                 "total_items_analyzed": total_items,
-                "increasing_count": len(forecasts.get('increasing', [])),
-                "decreasing_count": len(forecasts.get('decreasing', [])),
-                "stable_count": len(forecasts.get('stable', [])),
-                "forecast_days": forecast_days
+                "increasing_count": inc_count,
+                "decreasing_count": dec_count,
+                "stable_count": stable_count,
+                "forecast_days": forecast_days,
+                "total_quantity": total_quantity,
+                "total_revenue": total_revenue,
+                "skipped_items_count": len(skipped_items)
             }
         }
         
     except Exception as e:
-        print(_urdu_msg(f"❌ پیشن گوئی رپورٹ میں خرابی: {e}"))
+        print(f"❌ پیشن گوئی رپورٹ میں خرابی: {e}")
         import traceback
         traceback.print_exc()
         return {"error": True, "message": str(e)}
 
 
 async def delete_forecast_report(folder_path: str) -> Dict:
-    """Delete forecast report folder"""
+    """Delete forecast report folder with Windows compatibility"""
     import shutil
-    if os.path.exists(folder_path):
-        shutil.rmtree(folder_path)
-        return {"status": "deleted", "path": folder_path}
-    return {"status": "not_found", "path": folder_path}
+    import stat
+    import time
+    
+    if not os.path.exists(folder_path):
+        return {"status": "not_found", "path": folder_path}
+    
+    def _remove_readonly(func, path, excinfo):
+        """Error handler for shutil.rmtree on Windows."""
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except Exception:
+            pass
+    
+    for attempt in range(3):
+        try:
+            shutil.rmtree(folder_path, ignore_errors=False, onerror=_remove_readonly)
+            print(f"✅ Deleted folder: {folder_path}")
+            return {"status": "deleted", "path": folder_path}
+        except PermissionError:
+            if attempt == 2:
+                print(f"❌ Failed to delete {folder_path} after 3 attempts")
+                return {"status": "failed", "path": folder_path, "error": "Permission denied"}
+            time.sleep(0.3 * (attempt + 1))
+        except Exception as e:
+            print(f"❌ Error deleting {folder_path}: {e}")
+            return {"status": "failed", "path": folder_path, "error": str(e)}
+    
+    return {"status": "failed", "path": folder_path, "error": "Unknown error"}

@@ -1,4 +1,3 @@
-# myapp/api/forecasting.py
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -6,6 +5,9 @@ from sqlalchemy.future import select
 from sqlalchemy import delete, update, desc
 import uuid
 import os
+import stat
+import time
+import shutil
 from datetime import datetime
 from typing import List, Optional
 
@@ -21,6 +23,39 @@ from myapp.utils.forecast_report_charts import (
 
 router = APIRouter(prefix="/forecast-report", tags=["Forecast Report"])
 
+# =========================
+# HELPER: Safe Folder Deletion (Windows-Compatible)
+# =========================
+def _remove_readonly(func, path, excinfo):
+    """Error handler for shutil.rmtree on Windows."""
+    try:
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    except Exception:
+        pass
+
+
+def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.3) -> bool:
+    """Safely delete a folder with retry logic for Windows file locks."""
+    if not os.path.exists(folder_path):
+        return True
+    
+    for attempt in range(max_retries):
+        try:
+            shutil.rmtree(folder_path, ignore_errors=False, onerror=_remove_readonly)
+            print(f"✅ Successfully deleted folder: {folder_path}")
+            return True
+        except PermissionError as e:
+            print(f"⚠️ Permission error on attempt {attempt + 1}/{max_retries}: {e}")
+            if attempt == max_retries - 1:
+                print(f"❌ Failed to delete {folder_path} after {max_retries} attempts")
+                return False
+            time.sleep(delay * (attempt + 1))
+        except Exception as e:
+            print(f"⚠️ Error deleting {folder_path}: {e}")
+            return False
+    return False
+
 
 @router.post("/generate/{days}")
 async def create_forecast_report(
@@ -30,7 +65,7 @@ async def create_forecast_report(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Generate a forecast report for the current user
+    Generate a forecast report for the current user (Excel only)
     
     - **days**: Number of days for forecast (minimum 7)
     """
@@ -88,7 +123,7 @@ async def create_forecast_report(
             try:
                 print(f"Starting forecast generation for report {report_id}, {days} days")
                 
-                # Generate forecast report
+                # Generate forecast report (Excel only)
                 result = await generate_forecast_report(
                     report_id, 
                     sales_list, 
@@ -117,9 +152,7 @@ async def create_forecast_report(
                             increasing_count=result["forecast_summary"]["increasing_count"],
                             decreasing_count=result["forecast_summary"]["decreasing_count"],
                             stable_count=result["forecast_summary"]["stable_count"],
-                            pdf_path=result["pdf_path"],
                             excel_path=result["excel_path"],
-                            csv_path=result["csv_path"],
                             folder_path=result["output_folder"],
                             completed_at=datetime.now()
                         )
@@ -152,6 +185,7 @@ async def create_forecast_report(
         "status": "processing",
         "forecast_days": days
     }
+
 
 @router.get("/status/{report_id}")
 async def get_report_status(
@@ -186,21 +220,19 @@ async def get_report_status(
         } if report.status == "completed" else None
     }
     
-    # Add forecast_days if it exists
     if hasattr(report, 'forecast_days'):
         response["forecast_days"] = report.forecast_days
     
     return response
 
 
-@router.get("/download/{report_id}/{file_type}")
-async def download_report_file(
+@router.get("/download/{report_id}")
+async def download_forecast_report(
     report_id: str,
-    file_type: str,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Download report file (PDF, Excel, or CSV)"""
+    """Download forecast report Excel file only"""
     result = await db.execute(
         select(ForecastReport).where(
             ForecastReport.id == report_id,
@@ -216,35 +248,17 @@ async def download_report_file(
             detail="Report not found or not completed"
         )
     
-    file_path = None
-    file_name = None
-    media_type = "application/octet-stream"
-    
-    if file_type == "pdf":
-        file_path = report.pdf_path
-        file_name = f"forecast_report_{report.period_type}.pdf"
-        media_type = "application/pdf"
-    elif file_type == "excel":
-        file_path = report.excel_path
-        file_name = f"forecast_data_{report.period_type}.xlsx"
-        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    elif file_type == "csv":
-        file_path = report.csv_path
-        file_name = f"forecast_export_{report.period_type}.csv"
-        media_type = "text/csv"
-    else:
-        raise HTTPException(
-            status_code=400, 
-            detail="Invalid file type. Use 'pdf', 'excel', or 'csv'"
-        )
+    file_path = report.excel_path
     
     if not file_path or not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="Excel file not found")
+    
+    file_name = f"forecast_report_{report.period_type}.xlsx"
     
     return FileResponse(
         path=file_path,
         filename=file_name,
-        media_type=media_type
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 
 
@@ -266,9 +280,10 @@ async def delete_report(
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     
-    # Delete physical files
+    # Delete physical files using safe_delete_folder
     if report.folder_path and os.path.exists(report.folder_path):
-        await delete_report_files(report.folder_path)
+        if not safe_delete_folder(report.folder_path):
+            print(f"⚠️ Warning: Could not fully delete folder {report.folder_path}")
     
     # Delete from database
     await db.execute(
@@ -368,9 +383,7 @@ async def get_report_details(
         "increasing_count": report.increasing_count,
         "decreasing_count": report.decreasing_count,
         "stable_count": report.stable_count,
-        "pdf_path": report.pdf_path,
         "excel_path": report.excel_path,
-        "csv_path": report.csv_path,
         "folder_path": report.folder_path,
         "error_message": report.error_message
     }
@@ -379,3 +392,41 @@ async def get_report_details(
         response["forecast_days"] = report.forecast_days
     
     return response
+
+
+@router.delete("/all", status_code=200)
+async def delete_all_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete all forecast reports for the current user"""
+    result = await db.execute(
+        select(ForecastReport).where(
+            ForecastReport.user_id == current_user.user_id
+        )
+    )
+    reports = result.scalars().all()
+    
+    if not reports:
+        raise HTTPException(status_code=404, detail="No reports found")
+    
+    deleted_count = 0
+    for report in reports:
+        # Delete physical files
+        if report.folder_path and os.path.exists(report.folder_path):
+            if safe_delete_folder(report.folder_path):
+                deleted_count += 1
+            else:
+                print(f"⚠️ Could not delete folder: {report.folder_path}")
+        
+        # Delete from database
+        await db.execute(
+            delete(ForecastReport).where(ForecastReport.id == report.id)
+        )
+    
+    await db.commit()
+    
+    return {
+        "message": f"{deleted_count} reports deleted successfully",
+        "total_reports": len(reports)
+    }
