@@ -17,6 +17,7 @@ from myapp.models.sales import Sale
 from myapp.utils.urdu_date import convert_datetime_to_urdu
 from myapp.utils.units import UnitConverter
 from myapp.crud.udhar import update_udhar_summary
+from myapp.services.email import low_stock_template, send_email
 
 # =========================
 # GLOBAL
@@ -147,6 +148,22 @@ async def create_udhar(
 
     item.stock_quantity -= base_quantity
 
+    # ================= LOW STOCK ALERT =================
+    if float(item.stock_quantity) < 10:
+        try:
+            subject = f"⚠️ Low Stock: {item.item_name}"
+
+            body = low_stock_template(
+                item_name=item.item_name,
+                stock=item.stock_quantity,
+                unit=item.item_unit
+            )
+
+            send_email(current_user.email, subject, body)
+
+        except Exception as e:
+            print("Low stock email error:", str(e))
+
     # ================= UDhar =================
     res = await db.execute(
         select(Udhar).where(
@@ -222,6 +239,8 @@ async def create_udhar(
     )
 
     return format_item(res.scalar_one())
+
+
 # =========================
 # UPDATE
 # =========================

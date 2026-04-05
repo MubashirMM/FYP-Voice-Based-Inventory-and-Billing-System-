@@ -14,6 +14,7 @@ from myapp.models.bill_item_history import BillItemHistory
 
 from myapp.utils.units import UnitConverter
 from myapp.utils.urdu_date import convert_datetime_to_urdu
+from myapp.services.email import low_stock_template
 
 # =========================
 # GLOBAL
@@ -183,6 +184,23 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
 
     # ================= STOCK UPDATE =================
     item.stock_quantity -= qty_base
+
+
+    # ================= LOW STOCK ALERT =================
+    if float(item.stock_quantity) < 10:
+        try:
+            subject = f"⚠️ Low Stock: {item.item_name}"
+
+            body = low_stock_template(
+                item_name=item.item_name,
+                stock=item.stock_quantity,
+                unit=item.item_unit
+            )
+
+            send_email(current_user.email, subject, body)
+
+        except Exception as e:
+            print("Low stock email error:", str(e))
 
     await db.commit()
     await db.refresh(bill_item)

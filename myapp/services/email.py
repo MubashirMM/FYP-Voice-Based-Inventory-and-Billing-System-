@@ -125,3 +125,14 @@ def account_deleted_template(username: str):
         "🗑 اکاؤنٹ ڈیلیٹ",
         f"{username}، آپ کا اکاؤنٹ کامیابی سے ڈیلیٹ کر دیا گیا ہے۔<br><br>ہماری سروس استعمال کرنے کا شکریہ 🙏"
     )
+
+def low_stock_template(item_name: str, stock: float, unit: str):
+    return base_template(
+        "⚠️ کم اسٹاک الرٹ",
+        f"""
+        آئٹم: <b>{item_name}</b><br>
+        موجودہ اسٹاک: <b>{stock} {unit}</b><br><br>
+
+        ⚠️ اسٹاک کم ہو رہا ہے، براہ کرم جلدی ری اسٹاک کریں۔
+        """
+    )
