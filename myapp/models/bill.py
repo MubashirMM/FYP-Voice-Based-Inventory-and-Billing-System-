@@ -11,7 +11,7 @@ class Bill(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.user_id"), nullable=False)
 
     udhar_items_total: Mapped[float] = mapped_column(Float, default=0.0)
-    direct_addition: Mapped[float] = mapped_column(Float, default=0.0)
+    direct_addition: Mapped[float] = mapped_column(Float, default=0.0) 
     direct_deduction: Mapped[float] = mapped_column(Float, default=0.0)
     effective_total: Mapped[float] = mapped_column(Float, default=0.0)
 

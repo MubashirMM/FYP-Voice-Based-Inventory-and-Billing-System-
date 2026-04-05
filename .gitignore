@@ -21,3 +21,4 @@ Thumbs.db
 # Environment variables (Keep your API keys secret!)
 .env
 alembic/
+reports_storage/ 
