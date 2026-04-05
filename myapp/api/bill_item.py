@@ -19,15 +19,18 @@ router = APIRouter(prefix="/bill-items", tags=["Bill Items"])
 # =========================
 # CREATE
 # =========================
+from fastapi import BackgroundTasks   # ✅ ADD THIS IMPORT
+
 @router.post("/", response_model=BillItemRead)
 async def create_new_bill_item(
     bill_data: BillItemCreate,
+    background_tasks: BackgroundTasks,   # ✅ ADD THIS LINE
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     try:
         data = bill_data.model_dump()
-        return await create_bill_item(db, data, current_user)
+        return await create_bill_item(db, data, current_user,background_tasks)
 
     except HTTPException:
         raise

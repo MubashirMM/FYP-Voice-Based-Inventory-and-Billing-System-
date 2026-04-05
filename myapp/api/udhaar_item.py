@@ -15,15 +15,15 @@ from myapp.crud.udhaar_item import (
     list_udharitems
 )
 
-router = APIRouter(prefix="/udhar-items", tags=["udhar items"])
+router = APIRouter(prefix="/udhar-items", tags=["udhar items"],redirect_slashes=False)
 
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy.ext.asyncio import AsyncSession
 
-# =========================
-# CREATE
-# =========================
 @router.post("/", response_model=UdharRead)
 async def create_new_udhar(
     udhar_data: UdharCreateRequest,
+    background_tasks: BackgroundTasks,   # ✅ ADDED
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -34,14 +34,14 @@ async def create_new_udhar(
             item_name=udhar_data.item_name,
             quantity=udhar_data.quantity,
             unit=udhar_data.unit,
-            current_user=current_user
+            current_user=current_user,
+            background_tasks=background_tasks   # ✅ ADDED
         )
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"سرور خرابی: {str(e)}")
-
 
 # =========================
 # GET ALL

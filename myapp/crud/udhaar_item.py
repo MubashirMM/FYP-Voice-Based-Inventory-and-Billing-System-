@@ -103,13 +103,16 @@ async def get_item_by_name(db: AsyncSession, name: str, current_user: User):
 # =========================
 # CREATE
 # =========================
+from fastapi import BackgroundTasks  # if not added
+
 async def create_udhar(
     db: AsyncSession,
     customer_name: str,
     item_name: str,
     quantity: float,
     unit: str,
-    current_user: User
+    current_user: User,
+    background_tasks: BackgroundTasks   # ✅ ADD THIS
 ):
     if quantity <= 0:
         raise HTTPException(status_code=400, detail="مقدار صفر یا منفی نہیں ہو سکتی")
@@ -148,10 +151,10 @@ async def create_udhar(
 
     item.stock_quantity -= base_quantity
 
-    # ================= LOW STOCK ALERT =================
-    if float(item.stock_quantity) < 10:
+# ================= LOW STOCK ALERT =================
+    if int(item.stock_quantity) <= 9:
         try:
-            subject = f"⚠️ Low Stock: {item.item_name}"
+            subject = f"⚠️ کم اسٹاک: {item.item_name}"
 
             body = low_stock_template(
                 item_name=item.item_name,
@@ -159,7 +162,12 @@ async def create_udhar(
                 unit=item.item_unit
             )
 
-            send_email(current_user.email, subject, body)
+            background_tasks.add_task(
+                send_email,
+                current_user.email,
+                subject,
+                body
+            )
 
         except Exception as e:
             print("Low stock email error:", str(e))

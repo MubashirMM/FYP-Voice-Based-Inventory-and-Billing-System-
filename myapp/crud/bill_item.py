@@ -3,7 +3,7 @@ from sqlalchemy.future import select
 from sqlalchemy import delete
 from datetime import date, datetime
 from decimal import Decimal
-from fastapi import HTTPException
+from fastapi import HTTPException,BackgroundTasks
 
 from myapp.models.bill_item import BillItem
 from myapp.models.bill import Bill
@@ -14,7 +14,7 @@ from myapp.models.bill_item_history import BillItemHistory
 
 from myapp.utils.units import UnitConverter
 from myapp.utils.urdu_date import convert_datetime_to_urdu
-from myapp.services.email import low_stock_template
+from myapp.services.email import low_stock_template, send_email
 
 # =========================
 # GLOBAL
@@ -53,8 +53,14 @@ def format_bill_item(i: BillItem):
 # =========================
 # CREATE BILL ITEM
 # =========================
-async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
+from fastapi import BackgroundTasks
 
+async def create_bill_item(
+    db: AsyncSession,
+    data: dict,
+    current_user: User,
+    background_tasks: BackgroundTasks
+):
     # 🔍 check item exists
     res = await db.execute(
         select(Item).where(
@@ -185,11 +191,11 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
     # ================= STOCK UPDATE =================
     item.stock_quantity -= qty_base
 
-
-    # ================= LOW STOCK ALERT =================
-    if float(item.stock_quantity) < 10:
+    await db.commit()
+   # ================= LOW STOCK ALERT =================
+    if int(item.stock_quantity) <= 9:   # only once trigger
         try:
-            subject = f"⚠️ Low Stock: {item.item_name}"
+            subject = f"⚠️ کم اسٹاک: {item.item_name}"
 
             body = low_stock_template(
                 item_name=item.item_name,
@@ -197,12 +203,18 @@ async def create_bill_item(db: AsyncSession, data: dict, current_user: User):
                 unit=item.item_unit
             )
 
-            send_email(current_user.email, subject, body)
+            # ✅ BACKGROUND (NO WAIT)
+            background_tasks.add_task(
+                send_email,
+                current_user.email,
+                subject,
+                body
+            )
 
         except Exception as e:
             print("Low stock email error:", str(e))
 
-    await db.commit()
+    
     await db.refresh(bill_item)
 
     return format_bill_item(bill_item)

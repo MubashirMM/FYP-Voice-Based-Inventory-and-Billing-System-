@@ -35,21 +35,31 @@ def _remove_readonly(func, path, excinfo):
         pass
 
 
-def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.3) -> bool:
+def safe_delete_folder(folder_path: str, max_retries: int = 3, delay: float = 0.5) -> bool:
     """Safely delete a folder with retry logic for Windows file locks."""
     if not os.path.exists(folder_path):
         return True
     
+    # First try normal deletion
     for attempt in range(max_retries):
         try:
-            shutil.rmtree(folder_path, ignore_errors=False, onerror=_remove_readonly)
+            shutil.rmtree(folder_path, onerror=_remove_readonly)
             print(f"✅ Successfully deleted folder: {folder_path}")
             return True
         except PermissionError as e:
             print(f"⚠️ Permission error on attempt {attempt + 1}/{max_retries}: {e}")
             if attempt == max_retries - 1:
                 print(f"❌ Failed to delete {folder_path} after {max_retries} attempts")
-                return False
+                # Try alternative method - rename then delete
+                try:
+                    import tempfile
+                    temp_name = os.path.join(os.path.dirname(folder_path), f"__delete_{int(time.time())}")
+                    os.rename(folder_path, temp_name)
+                    shutil.rmtree(temp_name, onerror=_remove_readonly)
+                    print(f"✅ Successfully deleted via rename: {folder_path}")
+                    return True
+                except Exception:
+                    return False
             time.sleep(delay * (attempt + 1))
         except Exception as e:
             print(f"⚠️ Error deleting {folder_path}: {e}")
@@ -89,6 +99,29 @@ async def create_forecast_report(
             detail="No sales data found for this user"
         )
     
+    # ✅ VALIDATE DATA BEFORE CREATING DB ENTRY
+    # Check if there are enough items with 3+ sales
+    from collections import defaultdict
+    item_sales_count = defaultdict(int)
+    for s in sales:
+        item_sales_count[s.item_name] += 1
+    
+    valid_items = [item for item, count in item_sales_count.items() if count >= 3]
+    
+    # Validation: Need at least 2 items with 3+ sales
+    if len(valid_items) < 2:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"پیشن گوئی کے لیے کم از کم 2 مختلف اشیاء کی ضرورت ہے جن کی کم از کم 3 سیلز ہوں۔ موجودہ: {len(valid_items)} اشیاء جن کی 3+ سیلز ہیں"
+        )
+    
+    # Validation: Need at least 5 total sales records
+    if len(sales) < 5:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"پیشن گوئی کے لیے کم از کم 5 سیلز ریکارڈ کی ضرورت ہے۔ موجودہ: {len(sales)}"
+        )
+    
     # Convert to list of dicts for forecasting
     sales_list = []
     for s in sales:
@@ -105,6 +138,7 @@ async def create_forecast_report(
     # Generate unique report ID
     report_id = str(uuid.uuid4())[:8]
     
+    # ✅ ONLY CREATE DB ENTRY AFTER VALIDATION PASSES
     # Create report record
     report = ForecastReport(
         id=report_id,
@@ -185,7 +219,6 @@ async def create_forecast_report(
         "status": "processing",
         "forecast_days": days
     }
-
 
 @router.get("/status/{report_id}")
 async def get_report_status(
