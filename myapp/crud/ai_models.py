@@ -28,40 +28,59 @@ def load_prompt():
 
 # ------------------------------
 # TEXT → JSON COMMAND
-# ------------------------------
+# ------------------------------ 
+
+import json
+import requests
+from myapp.config import settings
+
 def process_text(text: str):
-    """ٹیکسٹ کو LLM کو بھیجو اور JSON کمانڈ واپس لو"""
+    """
+    اردو ٹیکسٹ کو Groq پر بھیجتا ہے اور JSON واپس کرتا ہے
+    """
     try:
+        # پرامپٹ فائل لوڈ کریں
         prompt_template = load_prompt()
-        full_prompt = prompt_template + "\n\nUser Command: " + text
+        full_prompt = f"{prompt_template}\n\nصارف کا جملہ: {text}"
 
         headers = {
-            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Authorization": f"Bearer {settings.GROQ_API_KEY}",
             "Content-Type": "application/json"
         }
 
         payload = {
             "model": "llama-3.3-70b-versatile",
             "messages": [
-                {"role": "system", "content": "صرف درست JSON واپس کریں۔ کوئی اضافی ٹیکسٹ نہ لکھیں۔"},
+                {
+                    "role": "system", 
+                    "content": "آپ ایک ڈیٹا ایکسٹریکٹر ہیں جو صرف JSON میں جواب دیتا ہے۔"
+                },
                 {"role": "user", "content": full_prompt}
             ],
-            "temperature": 0.0,
-            "max_tokens": 1024
+            "temperature": 0.0,  # درستگی کے لیے اسے صفر رکھا گیا ہے
+            "max_tokens": 512
         }
 
-        response = requests.post(LLM_URL, headers=headers, json=payload)
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=15
+        )
         response.raise_for_status()
 
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+        # AI کے جواب کو صاف کریں
+        raw_content = response.json()["choices"][0]["message"]["content"]
+        clean_json_str = raw_content.replace("```json", "").replace("```", "").strip()
 
-    except requests.exceptions.HTTPError as e:
-        raise Exception(f"LLM سروس میں خرابی: {e.response.status_code}")
+        # JSON کو پائتھن ڈکشنری میں بدلیں
+        return json.loads(clean_json_str)
+
+    except json.JSONDecodeError:
+        return {"error": "ڈیٹا کو سمجھنے میں غلطی ہوئی (Invalid JSON)"}
     except Exception as e:
-        raise Exception(f"ٹیکسٹ پروسیسنگ میں خرابی: {str(e)}")
-
-
+        print(f"Error: {str(e)}")
+        raise Exception("ٹیکسٹ پروسیسنگ کے دوران مسئلہ پیش آیا۔")
 # ------------------------------
 # VOICE → TEXT (Whisper)
 # ------------------------------

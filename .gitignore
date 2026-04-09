@@ -20,6 +20,6 @@ Thumbs.db
 
 # Environment variables (Keep your API keys secret!)
 .env
-alembic/
+alembic/ 
 reports_storage/ 
 forecast_reports/
