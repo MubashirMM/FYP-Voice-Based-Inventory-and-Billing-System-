@@ -72,7 +72,11 @@ def process_voice(audio_file):
 
         headers = {"Authorization": f"Bearer {GROQ_API_KEY}"}
         files = {"file": ("audio.wav", audio_file.read(), "audio/wav")}
-        data = {"model": "whisper-large-v3"}
+        data = {
+            "model": "whisper-large-v3-turbo", 
+            "language": "ur",
+            "response_format": "json"
+        }
 
         response = requests.post(WHISPER_URL, headers=headers, files=files, data=data)
         response.raise_for_status()
