@@ -17,7 +17,6 @@ from myapp.api.report import router as report
 from myapp.api.forcasting import router as forcast
 from myapp.api.bill_item import router as bill_item
 from myapp.api.bill_item_history import router as bill_item_history
-from myapp.api.forcasting import router as forecast
 
 
 
@@ -29,10 +28,10 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 # Create app
-myapp = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan)
 
 
-myapp.add_middleware(
+app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], 
     allow_credentials=True,
@@ -44,16 +43,16 @@ myapp.add_middleware(
 from myapp.utils.errors import error_map
 from fastapi.exceptions import RequestValidationError
 
-@myapp.exception_handler(HTTPException)
+@app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
     error_label = error_map.get(exc.status_code, "نامعلوم مسئلہ")
     return JSONResponse(status_code=exc.status_code, content={"error": error_label, "detail": exc.detail})
 
-@myapp.exception_handler(ValueError)
+@app.exception_handler(ValueError)
 async def value_error_handler(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"error": "غلط ویلیو", "detail": str(exc)})
 
-@myapp.exception_handler(RequestValidationError)
+@app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     cleaned_errors = []
     for err in exc.errors():
@@ -62,20 +61,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         cleaned_errors.append(err)
     return JSONResponse(status_code=422, content={"error": "غلط ڈیٹا", "detail": cleaned_errors})
 
-@myapp.exception_handler(Exception)
+@app.exception_handler(Exception)
 async def custom_general_exception_handler(request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"error": "سرور کی خرابی", "detail": str(exc)})
 
-myapp.include_router(ai_router)
-myapp.include_router(user)
-myapp.include_router(shop) 
-myapp.include_router(items)
-myapp.include_router(customers)
-myapp.include_router(udhaar_item)
-myapp.include_router(bill_item)
-myapp.include_router(sales)
-myapp.include_router(udhar)
-myapp.include_router(bill)
-myapp.include_router(bill_item_history)
-myapp.include_router(report)
-myapp.include_router(forcast)
+app.include_router(ai_router)
+app.include_router(user)
+app.include_router(shop) 
+app.include_router(items)
+app.include_router(customers)
+app.include_router(udhaar_item)
+app.include_router(bill_item)
+app.include_router(sales)
+app.include_router(udhar)
+app.include_router(bill)
+app.include_router(bill_item_history)
+app.include_router(report)
+app.include_router(forcast)

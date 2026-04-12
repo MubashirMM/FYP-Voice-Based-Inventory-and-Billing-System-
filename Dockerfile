@@ -1,35 +1,34 @@
-# 1. Use Python 3.13 as required by your audio libraries
-FROM python:3.13-slim
+# 1. Using the cached Bitnami image
+FROM bitnami/pytorch:latest
 
-# 2. Set environment variables to keep Python from buffering and creating .pyc files
+# 2. Environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# 3. Set the working directory
+# 3. Set working directory
 WORKDIR /code
 
-# 4. Install SYSTEM dependencies needed for audio and building C++ extensions
-# We need ffmpeg for Whisper/librosa and build-essential for libraries like bcrypt/ujson
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
+# 4. Install ONLY the basic build tools (these exist in core repo)
+USER root
+RUN tdnf update -y && tdnf install -y \
     build-essential \
     gcc \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && tdnf clean all
 
 # 5. Copy requirements
 COPY ./requirements.txt /code/requirements.txt
 
-# 6. Install Python dependencies
-# Note: This will take a long time because of torch and transformers
+# 6. Install Python dependencies 
+# We add imageio-ffmpeg here so Whisper/Librosa can find a working ffmpeg binary
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir imageio-ffmpeg && \
     pip install --no-cache-dir -r /code/requirements.txt
 
 # 7. Copy your application code and env
 COPY ./myapp /code/myapp
 COPY .env /code/.env
 
-# 8. Expose the port FastAPI runs on
+# 8. Expose port
 EXPOSE 8000
 
 # 9. Run the application
