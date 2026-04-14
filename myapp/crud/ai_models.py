@@ -18,13 +18,11 @@ def load_prompt():
         return "صرف JSON میں جواب دیں۔" 
     with open(prompt_path, "r", encoding="utf-8") as f:
         return f.read().strip()
-
 def process_text(text: str):
-    """Groq اور Gemini کے ذریعے اردو ٹیکسٹ پروسیسنگ"""
     prompt_template = load_prompt()
     full_prompt = f"{prompt_template}\n\nصارف کا جملہ: {text}"
     
-    # --- 1. TRY GROQ (Llama 3.1 8B) ---
+    # 1. TRY GROQ
     try:
         groq_res = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -40,11 +38,16 @@ def process_text(text: str):
             content = groq_res.json()["choices"][0]["message"]["content"]
             clean_json = content.replace("```json", "").replace("```", "").strip()
             return json.loads(clean_json)
-    except:
-        pass # Groq فیل ہونے کی صورت میں خاموشی سے Gemini پر جائیں
+        else:
+            print(f"Groq Error: {groq_res.status_code} - {groq_res.text}")
+    except Exception as e:
+        print(f"Groq Exception: {e}")
 
-    # --- 2. GEMINI FALLBACK (REST API) ---
+    # 2. GEMINI FALLBACK
     try:
+        if not GEMINI_API_KEY:
+            return {"error": "Gemini API Key missing!"}
+            
         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         gemini_res = requests.post(
             gemini_url,
@@ -54,10 +57,54 @@ def process_text(text: str):
             },
             timeout=8
         )
-        result_text = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
-        return json.loads(result_text)
-    except:
-        return {"error": "اے آئی سروس دستیاب نہیں ہے۔ براہ کرم دوبارہ کوشش کریں۔"}
+        if gemini_res.status_code == 200:
+            result_text = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
+            return json.loads(result_text)
+        else:
+            print(f"Gemini Error: {gemini_res.status_code} - {gemini_res.text}")
+            return {"error": f"Gemini API Error: {gemini_res.status_code}"}
+    except Exception as e:
+        return {"error": f"Internal Error: {str(e)}"}
+
+# def process_text(text: str):
+#     """Groq اور Gemini کے ذریعے اردو ٹیکسٹ پروسیسنگ"""
+#     prompt_template = load_prompt()
+#     full_prompt = f"{prompt_template}\n\nصارف کا جملہ: {text}"
+    
+#     # --- 1. TRY GROQ (Llama 3.1 8B) ---
+#     try:
+#         groq_res = requests.post(
+#             "https://api.groq.com/openai/v1/chat/completions",
+#             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+#             json={
+#                 "model": "llama-3.1-8b-instant", 
+#                 "messages": [{"role": "user", "content": full_prompt}],
+#                 "temperature": 0
+#             },
+#             timeout=5
+#         )
+#         if groq_res.status_code == 200:
+#             content = groq_res.json()["choices"][0]["message"]["content"]
+#             clean_json = content.replace("```json", "").replace("```", "").strip()
+#             return json.loads(clean_json)
+#     except:
+#         pass # Groq فیل ہونے کی صورت میں خاموشی سے Gemini پر جائیں
+
+#     # --- 2. GEMINI FALLBACK (REST API) ---
+#     try:
+#         gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+#         gemini_res = requests.post(
+#             gemini_url,
+#             json={
+#                 "contents": [{"parts": [{"text": full_prompt}]}],
+#                 "generationConfig": {"responseMimeType": "application/json"}
+#             },
+#             timeout=8
+#         )
+#         result_text = gemini_res.json()['candidates'][0]['content']['parts'][0]['text']
+#         return json.loads(result_text)
+#     except:
+#         return {"error": "اے آئی سروس دستیاب نہیں ہے۔ براہ کرم دوبارہ کوشش کریں۔"}
 
 def process_voice(audio_file):
     """وائس ٹرانسکریپشن"""
@@ -71,11 +118,12 @@ def process_voice(audio_file):
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"}, 
             files=files, 
             data=data,
-            timeout=15
+            timeout=15 
         )
         response.raise_for_status()
         return response.json()
     except Exception:
+        
         raise Exception("آواز کو متن میں تبدیل کرنے میں دشواری پیش آئی ہے۔")
 
 def full_voice_pipeline(audio_file):

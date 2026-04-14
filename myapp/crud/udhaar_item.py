@@ -112,67 +112,94 @@ async def create_udhar(
     quantity: float,
     unit: str,
     current_user: User,
-    background_tasks: BackgroundTasks   # ✅ ADD THIS
+    background_tasks: BackgroundTasks
 ):
+    # ================= VALIDATION =================
     if quantity <= 0:
-        raise HTTPException(status_code=400, detail="مقدار صفر یا منفی نہیں ہو سکتی")
+        raise HTTPException(status_code=400, detail="⚠️ مقدار صفر یا منفی نہیں ہو سکتی - براہ کرم درست مقدار درج کریں")
 
+    # Get or create customer
     customer = await get_or_create_customer(db, customer_name, current_user)
+    if not customer:
+        raise HTTPException(status_code=404, detail="❌ گاہک موجود نہیں ہے یا بنایا نہیں جا سکتا")
+
+    # Get item
     item = await get_item_by_name(db, item_name, current_user)
+    if not item:
+        raise HTTPException(status_code=404, detail="❌ آئٹم موجود نہیں ہے - براہ کرم درست آئٹم کا نام درج کریں")
 
     requested_unit = str(unit).strip()
     if not requested_unit:
-        raise HTTPException(status_code=400, detail="اکائی درج کرنا ضروری ہے")
+        raise HTTPException(status_code=400, detail="⚠️ اکائی ضروری ہے - براہ کرم اکائی منتخب کریں")
 
-    item_unit = item.item_unit.strip()
+    item_unit = str(item.item_unit).strip()
+    requested_quantity = float(quantity)
 
-    # ================= UNIT CHECK =================
-    if requested_unit == item_unit:
-        base_quantity = float(quantity)
+    # ================= UNIT CONVERSION LOGIC =================
+    # Normalize both units to their base form (e.g., "آدھا درجن" -> ("درجن", 0.5))
+    normalized_item_unit, item_factor = converter.normalize_unit(item_unit, 1)
+    normalized_requested_unit, requested_factor = converter.normalize_unit(requested_unit, 1)
+    
+    # Calculate base quantity in the normalized unit (e.g., in "درجن")
+    quantity_in_normalized = requested_quantity * requested_factor
+    
+    if normalized_requested_unit == normalized_item_unit:
+        # Same unit family (both are dozen-based)
+        # Convert to item's actual unit
+        base_quantity = quantity_in_normalized / item_factor
+        display_quantity = requested_quantity
+        display_unit = requested_unit
     else:
-        if not converter.is_compatible(requested_unit, item_unit):
+        # Different unit families - need compatibility check
+        if not converter.is_compatible(normalized_requested_unit, normalized_item_unit):
             raise HTTPException(
                 status_code=400,
-                detail=f"'{requested_unit}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا (مثلاً کلو کو درجن میں تبدیل نہیں کیا جا سکتا)"
+                detail=f"❌ '{requested_unit}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا - یہ اکائیاں مختلف اقسام کی ہیں (مثال: کلو کو درجن میں تبدیل نہیں کر سکتے)"
             )
-
-        base_quantity = converter.convert(
-            from_unit=requested_unit,
-            to_unit=item_unit,
-            value=float(quantity)
-        )
+        
+        try:
+            # Convert from normalized requested unit to normalized item unit
+            converted_value = converter.convert(
+                from_unit=normalized_requested_unit,
+                to_unit=normalized_item_unit,
+                value=quantity_in_normalized
+            )
+            # Then convert to item's actual unit
+            base_quantity = converted_value / item_factor
+            display_quantity = requested_quantity
+            display_unit = requested_unit
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"❌ یونٹ تبدیل نہیں ہو سکتا: {str(e)} - براہ کرم صحیح اکائی منتخب کریں")
 
     # ================= STOCK CHECK =================
     if base_quantity > float(item.stock_quantity):
         raise HTTPException(
             status_code=400,
-            detail=f"ذخیرہ ناکافی ہے۔ موجودہ: {item.stock_quantity} {item_unit}"
+            detail=f"⚠️ ذخیرہ ناکافی ہے! موجودہ اسٹاک: {item.stock_quantity} {item_unit} - آپ {base_quantity} {item_unit} لینا چاہتے ہیں"
         )
 
+    # ================= UPDATE STOCK =================
     item.stock_quantity -= base_quantity
 
-# ================= LOW STOCK ALERT =================
+    # ================= LOW STOCK ALERT =================
     if int(item.stock_quantity) <= 9:
         try:
-            subject = f"⚠️ کم اسٹاک: {item.item_name}"
-
+            subject = f"⚠️ کم اسٹاک الرٹ: {item.item_name}"
             body = low_stock_template(
                 item_name=item.item_name,
                 stock=item.stock_quantity,
                 unit=item.item_unit
             )
-
             background_tasks.add_task(
                 send_email,
                 current_user.email,
                 subject,
                 body
             )
-
         except Exception as e:
-            print("Low stock email error:", str(e))
+            print(f"⚠️ کم اسٹاک ای میل بھیجنے میں خرابی: {str(e)}")
 
-    # ================= UDhar =================
+    # ================= GET OR CREATE UDHAR RECORD =================
     res = await db.execute(
         select(Udhar).where(
             Udhar.customer_id == customer.customer_id,
@@ -191,26 +218,27 @@ async def create_udhar(
         db.add(udhar)
         await db.flush()
 
+    # ================= CALCULATE TOTAL AMOUNT =================
+    # Calculate total based on base quantity (in item's actual unit)
     total_amount = Decimal(str(base_quantity)) * Decimal(str(item.unit_price))
 
+    # ================= DATE FOR UDHAR =================
     now = datetime.now()
     urdu_udhar = convert_datetime_to_urdu(now, prefix="udhar")
     urdu_sale = convert_datetime_to_urdu(now, prefix="sale")
 
+    # ================= CREATE UDHAR ITEM =================
     new_item = UdharItem(
         udhar_id=udhar.udhar_id,
         customer_id=customer.customer_id,
-
         item_id=item.item_id,
-        item_name=item.item_name,  # ✅ Snapshot stored
+        item_name=item.item_name,  # Snapshot stored
         base_unit=item.item_unit,
-        requested_unit=requested_unit,
-
+        requested_unit=display_unit,  # User's requested unit
         user_id=current_user.user_id,
-        quantity=Decimal(str(base_quantity)),
+        quantity=Decimal(str(display_quantity)),  # ✅ User's entered quantity (FIXED)
         unit_price=float(item.unit_price),
         total_amount=total_amount,
-
         udhar_day=urdu_udhar["udhar_day"],
         udhar_month=urdu_udhar["udhar_month"],
         udhar_year=urdu_udhar["udhar_year"],
@@ -220,14 +248,14 @@ async def create_udhar(
 
     db.add(new_item)
 
-    # ✅ FIXED: Added item_name, unit_price, and item_unit to sale
+    # ================= ADD TO SALE RECORD =================
     db.add(Sale(
         customer_name=customer_name,
         item_id=item.item_id,
-        item_name=item.item_name,  # ✅ CRITICAL: Added item_name
-        quantity_sold=float(quantity),
-        unit_price=float(item.unit_price),  # ✅ Added unit_price
-        item_unit=requested_unit,  # ✅ Added item_unit
+        item_name=item.item_name,
+        quantity_sold=display_quantity,  # User's entered quantity
+        unit_price=float(item.unit_price),
+        item_unit=display_unit,  # User's requested unit
         sale_date=date.today(),
         user_id=current_user.user_id,
         sale_day=urdu_sale["sale_day"],
@@ -237,17 +265,21 @@ async def create_udhar(
         sale_day_name=urdu_sale["sale_day_name"]
     ))
 
+    # ================= UPDATE UDHAR SUMMARY =================
     await update_udhar_summary(db, customer.customer_id, current_user)
     await db.commit()
 
+    # ================= FETCH COMPLETE RECORD =================
     res = await db.execute(
         select(UdharItem)
         .options(selectinload(UdharItem.customer))
         .where(UdharItem.udharitem_id == new_item.udharitem_id)
     )
+    
+    # Success message
+    print(f"✅ ادھار آئٹم کامیابی سے بن گیا: {display_quantity} {display_unit} {item.item_name} - گاہک: {customer_name} - کل رقم: {total_amount} روپے")
 
     return format_item(res.scalar_one())
-
 
 # =========================
 # UPDATE

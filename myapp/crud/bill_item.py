@@ -61,7 +61,7 @@ async def create_bill_item(
     current_user: User,
     background_tasks: BackgroundTasks
 ):
-    # 🔍 check item exists
+    # 🔍 Check if item exists
     res = await db.execute(
         select(Item).where(
             Item.item_name == data["item_name"],
@@ -71,40 +71,63 @@ async def create_bill_item(
     item = res.scalar_one_or_none()
 
     if not item:
-        raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
+        raise HTTPException(status_code=404, detail="❌ آئٹم موجود نہیں ہے - براہ کرم درست آئٹم کا نام درج کریں")
 
     requested_unit = str(data.get("requested_unit", "")).strip()
     if not requested_unit:
-        raise HTTPException(status_code=400, detail="اکائی ضروری ہے")
+        raise HTTPException(status_code=400, detail="⚠️ اکائی ضروری ہے - براہ کرم اکائی منتخب کریں")
 
     item_unit = str(item.item_unit).strip()
+    requested_quantity = float(data["quantity"])
+
+    if requested_quantity <= 0:
+        raise HTTPException(status_code=400, detail="⚠️ مقدار صفر یا منفی نہیں ہو سکتی - براہ کرم درست مقدار درج کریں")
 
     # ================= UNIT LOGIC =================
-    if requested_unit == item_unit:
-        qty_base = float(data["quantity"])
+    # Normalize both units to their base form (e.g., "آدھا درجن" -> ("درجن", 0.5))
+    normalized_item_unit, item_factor = converter.normalize_unit(item_unit, 1)
+    normalized_requested_unit, requested_factor = converter.normalize_unit(requested_unit, 1)
+    
+    # Calculate base quantity in the normalized unit (e.g., in "درجن")
+    quantity_in_normalized = requested_quantity * requested_factor
+    
+    if normalized_requested_unit == normalized_item_unit:
+        # Same unit family (both are dozen-based)
+        # Convert to item's actual unit
+        qty_base = quantity_in_normalized / item_factor
+        display_quantity = requested_quantity
+        display_unit = requested_unit
     else:
-        if not converter.is_compatible(requested_unit, item_unit):
+        # Different unit families - need compatibility check
+        if not converter.is_compatible(normalized_requested_unit, normalized_item_unit):
             raise HTTPException(
                 status_code=400,
-                detail=f"'{requested_unit}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا (kg → dozen allowed نہیں)"
+                detail=f"❌ '{requested_unit}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا - یہ اکائیاں مختلف اقسام کی ہیں"
             )
+        
         try:
-            qty_base = converter.convert(
-                from_unit=requested_unit,
-                to_unit=item_unit,
-                value=float(data["quantity"])
+            # Convert from normalized requested unit to normalized item unit
+            converted_value = converter.convert(
+                from_unit=normalized_requested_unit,
+                to_unit=normalized_item_unit,
+                value=quantity_in_normalized
             )
-        except Exception:
-            raise HTTPException(status_code=400, detail="یونٹ تبدیل نہیں ہو سکتا")
+            # Then convert to item's actual unit
+            qty_base = converted_value / item_factor
+            display_quantity = requested_quantity
+            display_unit = requested_unit
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"❌ یونٹ تبدیل نہیں ہو سکتا: {str(e)} - براہ کرم صحیح اکائی منتخب کریں")
 
     # ================= STOCK CHECK =================
     if qty_base > float(item.stock_quantity):
         raise HTTPException(
             status_code=400,
-            detail=f"سٹاک کم ہے ({item.stock_quantity} {item_unit})"
+            detail=f"⚠️ ذخیرہ ناکافی ہے! موجودہ اسٹاک: {item.stock_quantity} {item_unit} - آپ {qty_base} {item_unit} خریدنا چاہتے ہیں"
         )
 
-    # ================= TOTAL =================
+    # ================= TOTAL CALCULATION =================
+    # Calculate total based on base quantity (in item's actual unit)
     total_amount = Decimal(str(qty_base)) * Decimal(str(item.unit_price))
 
     # ================= DATE =================
@@ -113,7 +136,7 @@ async def create_bill_item(
     urdu_item = convert_datetime_to_urdu(now, prefix="billitem")
     urdu_sale = convert_datetime_to_urdu(now, prefix="sale")
 
-    # ================= BILL =================
+    # ================= CREATE BILL =================
     bill = Bill(
         customer_id=None,
         user_id=current_user.user_id,
@@ -132,25 +155,18 @@ async def create_bill_item(
     db.add(bill)
     await db.flush()
 
-    # ================= BILL ITEM =================
+    # ================= CREATE BILL ITEM =================
     bill_item = BillItem(
         bill_id=bill.bill_id,
-
-        # FK (optional)
         item_id=item.item_id,
-
-        # ✅ SNAPSHOT (IMPORTANT)
         item_name=item.item_name,
         item_unit=item.item_unit,
-
         unit_price=float(item.unit_price),
-        quantity=float(data["quantity"]),  # user entered
-        requested_unit=requested_unit,
+        quantity=display_quantity,  # User's entered quantity
+        requested_unit=display_unit,  # User's requested unit
         total_amount=float(total_amount),
-
         created_date=date.today(),
         user_id=current_user.user_id,
-
         billitem_day=urdu_item["billitem_day"],
         billitem_month=urdu_item["billitem_month"],
         billitem_year=urdu_item["billitem_year"],
@@ -159,26 +175,25 @@ async def create_bill_item(
     )
     db.add(bill_item)
 
-    # ================= HISTORY =================
+    # ================= ADD TO HISTORY =================
     db.add(BillItemHistory(
         bill_id=bill.bill_id,
         user_id=current_user.user_id,
         item_name=item.item_name,
         unit_price=float(item.unit_price),
-        quantity=float(data["quantity"]),
-        requested_unit=requested_unit,
+        quantity=display_quantity,
+        requested_unit=display_unit,
         total_amount=float(total_amount),
     ))
 
-    # ================= SALE =================
-    # ✅ FIXED: Added item_name, unit_price, and item_unit
+    # ================= ADD TO SALE RECORD =================
     db.add(Sale(
         customer_name="نقد",
         item_id=item.item_id,
-        item_name=item.item_name,  # ✅ CRITICAL: Added item_name
-        quantity_sold=float(data["quantity"]),
-        unit_price=float(item.unit_price),  # ✅ Added unit_price
-        item_unit=requested_unit,  # ✅ Added item_unit (the unit user entered)
+        item_name=item.item_name,
+        quantity_sold=display_quantity,
+        unit_price=float(item.unit_price),
+        item_unit=display_unit,
         sale_date=date.today(),
         user_id=current_user.user_id,
         sale_day=urdu_sale["sale_day"],
@@ -188,36 +203,36 @@ async def create_bill_item(
         sale_day_name=urdu_sale["sale_day_name"]
     ))
 
-    # ================= STOCK UPDATE =================
+    # ================= UPDATE STOCK =================
     item.stock_quantity -= qty_base
 
     await db.commit()
-   # ================= LOW STOCK ALERT =================
-    if int(item.stock_quantity) <= 9:   # only once trigger
+    
+    # ================= LOW STOCK ALERT =================
+    if int(item.stock_quantity) <= 9:
         try:
-            subject = f"⚠️ کم اسٹاک: {item.item_name}"
-
+            subject = f"⚠️ کم اسٹاک الرٹ: {item.item_name}"
             body = low_stock_template(
                 item_name=item.item_name,
                 stock=item.stock_quantity,
                 unit=item.item_unit
             )
-
-            # ✅ BACKGROUND (NO WAIT)
             background_tasks.add_task(
                 send_email,
                 current_user.email,
                 subject,
                 body
             )
-
         except Exception as e:
-            print("Low stock email error:", str(e))
-
+            print(f"⚠️ کم اسٹاک ای میل بھیجنے میں خرابی: {str(e)}")
     
     await db.refresh(bill_item)
-
+    
+    # Success message
+    print(f"✅ بل آئٹم کامیابی سے بن گیا: {display_quantity} {display_unit} {item.item_name} - کل رقم: {total_amount} روپے")
+    
     return format_bill_item(bill_item)
+
 
 # =========================
 # LIST
