@@ -4,8 +4,11 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "interneta1toy9@gmail.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "zqzc pzav wtnn ttfw")
+# SMTP_EMAIL = os.getenv("SMTP_EMAIL", "interneta1toy9@gmail.com")
+# SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "zqzc pzav wtnn ttfw")
+
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "socialmediaplatforms12345@gmail.com")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "zwan qoev ngoo etec")
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
