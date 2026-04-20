@@ -1,44 +1,36 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from myapp.database.session import get_db
+from myapp.crud.ai_models.ai_models_items import process_voice_items
+from myapp.utils.security import get_current_user
+from myapp.models.user import User
 from pydantic import BaseModel
-from myapp.crud.ai_models import process_voice_items, process_text_items, full_voice_pipeline
 
 router = APIRouter(tags=["AI Voice Commands"])
 
+class VoiceItemsRequest(BaseModel):
+    audio_base64: str
 
-class TextRequest(BaseModel):
-    text: str
-
-
-@router.post("/voice-process")
-async def voice_process_endpoint(audio: UploadFile = File(...)):
-    """آڈیو اپلوڈ کریں اور ٹیکسٹ حاصل کریں"""
+@router.post("/voice-process-items")
+async def voice_process_endpoint(
+    payload: VoiceItemsRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    آواز سے آئٹمز پروسیس کریں - بیس 64 آڈیو بھیجیں (وائس لاگین کی طرح)
+    """
     try:
-        audio.file.seek(0)
-        result = process_voice_items(audio.file)
+        result = await process_voice_items(payload.audio_base64, current_user, db)
+        
+        # Check if result contains error
+        if isinstance(result, dict) and "error" in result:
+            raise HTTPException(status_code=400, detail=result)
+        
         return result
+        
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=400, detail="آڈیو پروسیس کرنے میں خرابی ہوئی۔ دوبارہ کوشش کریں۔")
-
-
-@router.post("/text-process")
-async def text_process_endpoint(data: TextRequest):
-    """ٹیکسٹ بھیجیں اور JSON کمانڈ حاصل کریں"""
-    try:
-        result = process_text_items(data.text)
-        return {"command": result}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="ٹیکسٹ پروسیس کرنے میں مسئلہ پیش آیا۔")
-
-
-@router.post("/voice-command")
-async def voice_command_endpoint(audio: UploadFile = File(...)):
-    """مکمل پائپ لائن: آڈیو → ٹیکسٹ → کمانڈ"""
-    try:
-        audio.file.seek(0)
-        result = full_voice_pipeline(audio.file)
-        return result
-    except Exception as e:
-        raise HTTPException(
-            status_code=400, 
-            detail="وائس کمانڈ پروسیس کرنے میں خرابی آئی ہے۔ براہ مہربانی دوبارہ ٹرائی کریں۔"
-        )
+        print(f"Error in voice_process_endpoint: {str(e)}")
+        raise HTTPException(status_code=400, detail={"error": "آڈیو پروسیس کرنے میں خرابی ہوئی۔ دوبارہ کوشش کریں۔"})
