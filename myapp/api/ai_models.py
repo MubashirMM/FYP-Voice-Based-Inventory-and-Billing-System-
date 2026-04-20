@@ -1,6 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from pydantic import BaseModel
-from myapp.crud.ai_models import process_voice, process_text, full_voice_pipeline
+from myapp.crud.ai_models import process_voice_items, process_text_items, full_voice_pipeline
 
 router = APIRouter(tags=["AI Voice Commands"])
 
@@ -14,7 +14,7 @@ async def voice_process_endpoint(audio: UploadFile = File(...)):
     """آڈیو اپلوڈ کریں اور ٹیکسٹ حاصل کریں"""
     try:
         audio.file.seek(0)
-        result = process_voice(audio.file)
+        result = process_voice_items(audio.file)
         return result
     except Exception as e:
         raise HTTPException(status_code=400, detail="آڈیو پروسیس کرنے میں خرابی ہوئی۔ دوبارہ کوشش کریں۔")
@@ -24,7 +24,7 @@ async def voice_process_endpoint(audio: UploadFile = File(...)):
 async def text_process_endpoint(data: TextRequest):
     """ٹیکسٹ بھیجیں اور JSON کمانڈ حاصل کریں"""
     try:
-        result = process_text(data.text)
+        result = process_text_items(data.text)
         return {"command": result}
     except Exception as e:
         raise HTTPException(status_code=400, detail="ٹیکسٹ پروسیس کرنے میں مسئلہ پیش آیا۔")

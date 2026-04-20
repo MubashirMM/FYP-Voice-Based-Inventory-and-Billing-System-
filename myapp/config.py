@@ -1,8 +1,13 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
+
+    SECRET_KEY:str
+    ALGORITHM:str
+    ACCESS_TOKEN_EXPIRE_MINUTES:int
+
     # Database
-    DB_USER: str
+    DB_USER: str 
     DB_PASSWORD: str
     DB_HOST: str
     DB_PORT: int
@@ -13,8 +18,7 @@ class Settings(BaseSettings):
     GROQ_API_KEY1: str
     GROQ_API_KEY2: str
     GROQ_API_KEY3: str
-
-    # GEMINI_API_KEY:str
+    GEMINI_API_KEY: str
 
     @property
     def DATABASE_URL(self) -> str:
