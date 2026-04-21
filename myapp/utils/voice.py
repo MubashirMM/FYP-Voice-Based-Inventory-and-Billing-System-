@@ -28,7 +28,7 @@ def combine_embeddings(samples: list[str]) -> bytes:
     print("[combine_embeddings] avg_emb shape:", avg_emb.shape, "dtype:", avg_emb.dtype)
     return avg_emb.astype(np.float32).tobytes()
 
-def match_voice(stored_bytes: bytes, new_sample_b64: str, threshold: float = 0.8) -> bool:
+def match_voice(stored_bytes: bytes, new_sample_b64: str, threshold: float = 0.7) -> bool:
     stored_emb = np.frombuffer(stored_bytes, dtype=np.float32)
     new_emb = audio_to_embedding(new_sample_b64)
 
