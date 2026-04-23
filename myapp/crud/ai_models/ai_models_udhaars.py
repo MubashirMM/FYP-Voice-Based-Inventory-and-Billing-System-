@@ -21,7 +21,7 @@ CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 def load_prompt_items():
     """Items ke liye prompt file load karein"""
-    prompt_path = Path("myapp/utils/prompt_items_cart.txt")
+    prompt_path = Path("myapp/utils/prompt_udhaars.txt")
     if not prompt_path.exists():
         return "You are an expert Data Extractor for Shop Management System. Extract item information. Return ONLY JSON."
     with open(prompt_path, "r", encoding="utf-8") as f:
@@ -151,7 +151,7 @@ def call_whisper_with_fallback(audio_base64):
     
     return None
 
-async def process_voice_cart(audio_base64: str, current_user: User, db: AsyncSession):
+async def process_voice_udhaars(audio_base64: str, current_user: User, db: AsyncSession):
     """
     آواز سے آئٹمز پروسیس کریں - موجودہ لاگ ان صارف کے لیے
     Works exactly like voice login - accepts base64 audio string

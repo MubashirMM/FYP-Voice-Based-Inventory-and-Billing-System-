@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY1: str
     GROQ_API_KEY2: str
     GROQ_API_KEY3: str
+    GROQ_API_KEY4: str
+    GROQ_API_KEY5: str
+
 
     @property
     def DATABASE_URL(self) -> str:
