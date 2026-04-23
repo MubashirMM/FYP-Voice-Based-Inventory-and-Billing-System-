@@ -18,7 +18,6 @@ class Settings(BaseSettings):
     GROQ_API_KEY1: str
     GROQ_API_KEY2: str
     GROQ_API_KEY3: str
-    GEMINI_API_KEY: str
 
     @property
     def DATABASE_URL(self) -> str:
