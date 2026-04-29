@@ -49,7 +49,8 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
     user = res.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(401, "ای میل نہیں ملی۔")
+        raise HTTPException(401, 
+                        detail="ای میل رجسٹرڈ نہیں ہے۔ براہ مہربانی پہلے رجسٹر کریں۔")
 
     if not verify_password(password, user.password_hash):
         raise HTTPException(401, "پاس ورڈ غلط ہے۔")
