@@ -30,8 +30,7 @@ def test_successful_registration_flow(page):
 
     page.get_by_role("button", name="رجسٹر کریں").click()
 
-    # FIX: Instead of checking for the text (which disappears quickly), 
-    # just wait for the successful redirect.
+
     try:
         page.wait_for_url("**/voice-samples-form", timeout=10000)
         print(f"\n✅ SUCCESS: Registered {email}")

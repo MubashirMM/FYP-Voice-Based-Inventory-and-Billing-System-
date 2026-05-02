@@ -1,6 +1,17 @@
 import pytest
 from playwright.sync_api import sync_playwright
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def setup_database():
+    """
+    Overrides the global async setup_database fixture.
+    This prevents the 'Sync test depending on async fixture' error.
+    """
+    # If you need to clear the DB for E2E, do it via a standard sync request 
+    # or leave empty if your server is already running with a test DB.
+    pass
 # This ensures the event loop is managed correctly between your 
 # async DB tests and these sync browser tests.
 @pytest.fixture(scope="session")
