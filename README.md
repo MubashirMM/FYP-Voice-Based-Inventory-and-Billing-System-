@@ -91,7 +91,7 @@ Structured into:
 ---
 
 ## 🗄️ Database
-MySQL is used for data storage with a structured relational schema including:
+PostgreSQL is used for data storage with a structured relational schema including:
 - Users
 - Stock
 - Bills
