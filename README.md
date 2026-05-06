@@ -125,7 +125,7 @@ PostgreSQL is used for data storage with a structured relational schema includin
 - LLM (Command Processing)
 
 ### Database
-- MySQL
+- PostgreSQL
 
 ### Deployment
 - AWS
