@@ -1,10 +1,8 @@
-
 import pytest
 import pytest_asyncio
 from typing import AsyncGenerator, Generator
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import NullPool
 
 from myapp.main import app
@@ -15,7 +13,7 @@ DATABASE_URL = "postgresql+asyncpg://postgres:password@localhost:5432/test_db"
 
 # Create engine for testing
 test_engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
-TestingSessionLocal = sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
+TestingSessionLocal = async_sessionmaker(test_engine, expire_on_commit=False, class_=AsyncSession)
 
 # Override database dependency
 async def override_get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -99,66 +97,82 @@ def auth_headers(auth_token):
     """Authorization headers"""
     return {"Authorization": f"Bearer {auth_token}"}
 
+# ============ Customer Creation Fixtures ============
 @pytest_asyncio.fixture
 async def create_test_customer(db_session: AsyncSession, create_test_user):
-    """Create a test customer for udhar tests"""
-    from myapp.crud.customer import create_customer
+    """Create a test customer using the correct CRUD function"""
+    from myapp.schemas.customer import CustomerCreate
+    from myapp.crud.customer import create_customers  # ✅ Note: plural "create_customers"
     
-    customer = await create_customer(
-        db_session,
-        customer_name="کسٹمر",
+    customer_data = CustomerCreate(
+        customer_name="کسٹمر",  # Test customer name
         phone_number="03001234567",
-        address="ٹیسٹ ایڈریس",
-        current_user=create_test_user
+        address="ٹیسٹ ایڈریس"
+    )
+    
+    customer = await create_customers(
+        db_session,
+        customer_data,
+        create_test_user
     )
     return customer
 
+# ============ Udhar Creation Fixtures ============
 @pytest_asyncio.fixture
-async def create_test_customer(db_session: AsyncSession, create_test_user):
-    """Create a test customer for udhar tests"""
-    from myapp.crud.customer import create_customer
+async def create_test_udhar(db_session: AsyncSession, create_test_customer, create_test_user):
+    """Create a test udhar record"""
+    from myapp.crud.udhar import get_or_create_unpaid_udhar
     
-    customer = await create_customer(
+    udhar = await get_or_create_unpaid_udhar(
         db_session,
-        customer_name="کسٹمر",
-        phone_number="03001234567",
-        address="ٹیسٹ ایڈریس",
-        current_user=create_test_user
+        create_test_customer.customer_id,
+        create_test_user
     )
-    return customer
+    
+    # Add initial amount for testing
+    udhar.subtotal = 1000.0
+    udhar.total = 1000.0
+    await db_session.commit()
+    await db_session.refresh(udhar)
+    
+    return udhar
 
+# ============ Bill Creation Fixtures ============
 @pytest_asyncio.fixture
 async def create_test_bill(db_session: AsyncSession, create_test_customer, create_test_user):
     """Create a test bill for tests"""
     from myapp.models.bill import Bill
-    from myapp.crud.bill import create_bill
+    from datetime import datetime
     
     # Create a bill
     bill = Bill(
         customer_id=create_test_customer.customer_id,
         total_amount=5000.00,
+        effective_total=5000.00,
         status="unpaid",
-        user_id=create_test_user.user_id
+        user_id=create_test_user.user_id,
+        created_at=datetime.now()
     )
     db_session.add(bill)
     await db_session.commit()
     await db_session.refresh(bill)
     return bill
 
-@pytest.fixture
-def verified_user(db_session, test_user_data):
-    """Create a verified test user"""
+# ============ Verified User Fixture ============
+@pytest_asyncio.fixture
+async def verified_user(db_session: AsyncSession, test_user_data):
+    """Create a verified test user (async version)"""
     from myapp.models.user import User
     from myapp.utils.security import hash_password
-      
+    
     user = User(
         email=test_user_data["email"],
         username=test_user_data["username"],
         hashed_password=hash_password(test_user_data["password"]),
-        is_verified=True,  # Key: auto-verified for tests
+        is_verified=True,  # Auto-verified for tests
         is_active=True
     )
     db_session.add(user)
-    db_session.commit()
-    db_session.refresh(user)
+    await db_session.commit()
+    await db_session.refresh(user)
     return user
