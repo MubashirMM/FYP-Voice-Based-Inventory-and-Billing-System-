@@ -88,7 +88,7 @@ async def test_authenticate_user_nonexistent_email(db_session):
     with pytest.raises(HTTPException) as exc:
         await authenticate_user(db_session, "nonexistent@example.com", "anypass")
     assert exc.value.status_code == 401
-    assert "ای میل نہیں ملی" in exc.value.detail
+    assert exc.value.detail == "ای میل رجسٹرڈ نہیں ہے۔ براہ مہربانی پہلے رجسٹر کریں۔"
 
 
 @pytest.mark.asyncio
