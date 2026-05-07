@@ -29,12 +29,16 @@ class ItemCreate(BaseModel):
     def name_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError("آئٹم کا نام خالی نہیں ہو سکتا")
+        if len(v.strip()) > 50:
+            raise ValueError("آئٹم کا نام 50 حروف سے زیادہ نہیں ہو سکتا")  # ✅ Fixed message
         return v.strip()
 
     @field_validator("item_unit")
     def unit_not_empty(cls, v):
         if not v or not v.strip():
             raise ValueError("یونٹ خالی نہیں ہو سکتا")
+        if len(v.strip()) > 50:  # Add this if unit column also has limit
+            raise ValueError("یونٹ 50 حروف سے زیادہ نہیں ہو سکتا")  
         return v.strip()
 
     @field_validator("unit_price")
@@ -66,12 +70,16 @@ class ItemUpdate(BaseModel):
     def name_not_empty(cls, v):
         if v is not None and (not v or not v.strip()):
             raise ValueError("آئٹم کا نام خالی نہیں ہو سکتا")
+        if len(v.strip()) > 50:
+            raise ValueError("آئٹم کا نام 50 حروف سے زیادہ نہیں ہو سکتا")  # ✅ Fixed message
         return v.strip() if v else v
 
     @field_validator("item_unit")
     def unit_not_empty(cls, v):
         if v is not None and (not v or not v.strip()):
             raise ValueError("یونٹ خالی نہیں ہو سکتا")
+        if len(v.strip()) > 50: 
+            raise ValueError("یونٹ 50 حروف سے زیادہ نہیں ہو سکتا")  
         return v.strip() if v else v
     @field_validator("unit_price")
     def price_positive(cls, v):

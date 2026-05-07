@@ -21,9 +21,9 @@ from myapp.schemas.items import ItemCreate, ItemUpdate
 from myapp.crud.user import register_user
 
 
-# ============================================
-# CREATE ITEM TESTS
-# ============================================
+# # ============================================
+# # CREATE ITEM TESTS
+# # ============================================
 
 @pytest.mark.asyncio
 async def test_create_item_success(db_session):
@@ -643,25 +643,6 @@ async def test_delete_item_other_user_item(db_session):
     
     assert exc.value.status_code == 404
 
-# ============================================
-# EDGE CASES & ADDITIONAL TESTS
-# ============================================
-@pytest.mark.asyncio
-async def test_create_item_very_long_name(db_session):
-    """Test creating item with very long name"""
-    user = await register_user(db_session, "longname@example.com", "LongName", "pass123")
-    
-    long_name = "A" * 255
-    item_data = ItemCreate(
-        item_name=long_name,
-        item_unit="Piece",
-        unit_price=100,
-        stock_quantity=1
-    )
-    
-    item = await create_items(db_session, item_data, user)
-    assert item.item_name == long_name
-
 
 @pytest.mark.asyncio
 async def test_create_item_same_name_different_users(db_session):
@@ -860,3 +841,152 @@ async def test_create_item_exceeds_name_limit(db_session):
     with pytest.raises(Exception) as exc_info:
         await create_items(db_session, item_data, user)
     assert "value too long" in str(exc_info.value).lower()
+
+    ============================================
+EDGE CASES & ADDITIONAL TESTS
+============================================
+
+
+@pytest.mark.asyncio
+async def test_create_item_max_length_name(db_session):
+    """Test creating item with exactly 50 characters (maximum allowed)"""
+    user = await register_user(db_session, "maxlength@example.com", "MaxLength", "pass123")
+    
+    # Create a name with exactly 50 characters
+    max_length_name = "A" * 50
+    item_data = ItemCreate(
+        item_name=max_length_name,
+        item_unit="Piece",
+        unit_price=100,
+        stock_quantity=1
+    )
+    
+    item = await create_items(db_session, item_data, user)
+    assert item.item_name == max_length_name
+    assert len(item.item_name) == 50
+
+
+@pytest.mark.asyncio
+async def test_create_item_boundary_49_characters(db_session):
+    """Test creating item with 49 characters (should work)"""
+    user = await register_user(db_session, "boundary@example.com", "Boundary", "pass123")
+    
+    # Create a name with 49 characters
+    name_49 = "A" * 49
+    item_data = ItemCreate(
+        item_name=name_49,
+        item_unit="Piece",
+        unit_price=100,
+        stock_quantity=1
+    )
+    
+    item = await create_items(db_session, item_data, user)
+    assert item.item_name == name_49
+    assert len(item.item_name) == 49
+
+
+
+@pytest.mark.asyncio
+async def test_update_item_to_max_length_name(db_session):
+    """Test updating item to exactly 50 characters (maximum allowed)"""
+    user = await register_user(db_session, "updatemax@example.com", "UpdateMax", "pass123")
+    
+    # Create initial item
+    item_data = ItemCreate(
+        item_name="Original Item",
+        item_unit="Piece",
+        unit_price=100,
+        stock_quantity=1
+    )
+    item = await create_items(db_session, item_data, user)
+    
+    # Update with exactly 50 characters
+    max_length_name = "C" * 50
+    update_data = ItemUpdate(item_name=max_length_name)
+    
+    updated_item = await update_items(db_session, item.item_id, update_data, user)
+    assert updated_item.item_name == max_length_name
+    assert len(updated_item.item_name) == 50
+
+
+
+@pytest.mark.asyncio
+async def test_pydantic_validation_rejects_long_name(db_session):
+    """Test that Pydantic schema rejects long names before reaching database"""
+    long_name = "A" * 51
+    
+    # This should fail at Pydantic level
+    with pytest.raises(ValueError) as exc_info:
+        ItemCreate(
+            item_name=long_name,
+            item_unit="Piece",
+            unit_price=100,
+            stock_quantity=1
+        )
+    
+    assert "50 حروف" in str(exc_info.value)
+
+@pytest.mark.asyncio
+async def test_create_item_very_long_name(db_session):
+    """Test creating item with very long name - SHOULD FAIL AT SCHEMA LEVEL"""
+    from pydantic import ValidationError
+    from myapp.crud.user import register_user
+    
+    user = await register_user(db_session, "longname@example.com", "LongName", "pass123")
+    long_name = "A" * 51  # 51 characters
+    
+    # We must wrap the creation of ItemCreate because that is where it fails
+    with pytest.raises(ValidationError) as exc_info:
+        item_data = ItemCreate(
+            item_name=long_name,
+            item_unit="Piece",
+            unit_price=100,
+            stock_quantity=1
+        )
+    
+    # Pydantic errors are stored in a specific way, so we check the string representation
+    assert "50 حروف" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_update_item_to_very_long_name(db_session):
+    """Test updating item to very long name - SHOULD FAIL"""
+    user = await register_user(db_session, "updatelong@example.com", "UpdateLong", "pass123")
+    
+    # Create initial item
+    item_data = ItemCreate(
+        item_name="Original Item",
+        item_unit="Piece",
+        unit_price=100,
+        stock_quantity=1
+    )
+    item = await create_items(db_session, item_data, user)
+    
+    # Try to update with 51-character name
+    long_name = "B" * 51
+    
+    # This should FAIL validation
+    with pytest.raises(ValueError) as exc_info:
+        update_data = ItemUpdate(item_name=long_name)  # Fails here
+        await update_items(db_session, item.item_id, update_data, user)
+    
+    assert "50 حروف" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_create_item_with_very_long_unit(db_session):
+    """Test creating item with very long unit - SHOULD FAIL"""
+    user = await register_user(db_session, "longunit@example.com", "LongUnit", "pass123")
+    
+    long_unit = "U" * 51
+    
+    # This should FAIL validation
+    with pytest.raises(ValueError) as exc_info:
+        item_data = ItemCreate(
+            item_name="Test Item",
+            item_unit=long_unit,
+            unit_price=100,
+            stock_quantity=1
+        )
+    
+    assert "50 حروف" in str(exc_info.value)

@@ -11,6 +11,13 @@ from myapp.schemas.items import ItemCreate, ItemUpdate
 # CREATE ITEM
 # ============================
 async def create_items(db: AsyncSession, item: ItemCreate, current_user: User):
+    # ✅ Length check at the beginning (though Pydantic already validates)
+    if len(item.item_name.strip()) > 50:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="آئٹم کا نام 50 حروف سے زیادہ نہیں ہو سکتا"
+        )
+    
     # Check if item with same name exists for this user
     stmt = select(Item).where(
         Item.user_id == current_user.user_id,
@@ -45,7 +52,6 @@ async def create_items(db: AsyncSession, item: ItemCreate, current_user: User):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="آئٹم بنانے میں خرابی ہوئی۔ براہ کرم دوبارہ کوشش کریں۔"
         )
-
 
 # ============================
 # READ ALL ITEMS
@@ -113,6 +119,13 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate, current
     
     # Check for duplicate name if name is being updated
     if item.item_name is not None:
+        # Length check (optional backup since Pydantic validates)
+        if len(item.item_name.strip()) > 50:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="آئٹم کا نام 50 حروف سے زیادہ نہیں ہو سکتا"
+            )
+        
         stmt = select(Item).where(
             Item.user_id == current_user.user_id,
             Item.item_name.ilike(item.item_name.strip()),
@@ -158,8 +171,6 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate, current
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="آئٹم اپ ڈیٹ کرنے میں خرابی ہوئی۔ براہ کرم دوبارہ کوشش کریں۔"
         )
-
-
 # ============================
 # DELETE ITEM
 # ============================
