@@ -176,3 +176,38 @@ async def verified_user(db_session: AsyncSession, test_user_data):
     await db_session.commit()
     await db_session.refresh(user)
     return user
+
+# Corrected create_test_bill fixture for conftest.py
+
+@pytest_asyncio.fixture
+async def create_test_bill(db_session: AsyncSession, create_test_customer, create_test_user):
+    """Create a test bill for tests"""
+    from myapp.models.bill import Bill
+    from datetime import date
+    from myapp.utils.urdu_date import convert_date_to_urdu
+    
+    # Get current date and convert to Urdu format
+    today = date.today()
+    urdu_date = convert_date_to_urdu(today, "bill")
+    
+    bill = Bill(
+        customer_id=create_test_customer.customer_id,
+        user_id=create_test_user.user_id,
+        customer_name=create_test_customer.customer_name,
+        udhar_items_total=5000.00,
+        direct_addition=0.0,
+        direct_deduction=0.0,
+        effective_total=5000.00,
+        status="unpaid",
+        bill_date=today,
+        bill_day=urdu_date["bill_day"],      # Note: key is "bill_day" not "day"
+        bill_month=urdu_date["bill_month"],
+        bill_year=urdu_date["bill_year"],
+        bill_day_name=urdu_date["bill_day_name"],
+        bill_time=""  # You're not using time in Bill model
+    )
+    
+    db_session.add(bill)
+    await db_session.commit()
+    await db_session.refresh(bill)
+    return bill
