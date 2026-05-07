@@ -144,3 +144,21 @@ async def create_test_bill(db_session: AsyncSession, create_test_customer, creat
     await db_session.commit()
     await db_session.refresh(bill)
     return bill
+
+@pytest.fixture
+def verified_user(db_session, test_user_data):
+    """Create a verified test user"""
+    from myapp.models.user import User
+    from myapp.utils.security import hash_password
+      
+    user = User(
+        email=test_user_data["email"],
+        username=test_user_data["username"],
+        hashed_password=hash_password(test_user_data["password"]),
+        is_verified=True,  # Key: auto-verified for tests
+        is_active=True
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
