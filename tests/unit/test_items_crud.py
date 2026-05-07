@@ -842,9 +842,9 @@ async def test_create_item_exceeds_name_limit(db_session):
         await create_items(db_session, item_data, user)
     assert "value too long" in str(exc_info.value).lower()
 
-    ============================================
-EDGE CASES & ADDITIONAL TESTS
-============================================
+#     ============================================
+# EDGE CASES & ADDITIONAL TESTS
+# ============================================
 
 
 @pytest.mark.asyncio
