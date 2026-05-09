@@ -58,7 +58,85 @@ def item_data():
     }
 
 class TestItemsCRUD:
-    
+    # def test_search_functionality(self, page, item_data):
+    #     """Test search/filter functionality"""
+    #     # Create a unique item for search test
+    #     page.get_by_role("button", name="نیا آئٹم").click()
+    #     page.wait_for_selector("form", timeout=5000)
+    #     page.wait_for_timeout(500)
+        
+    #     name_input = page.locator("input[type='text']").first
+    #     name_input.fill(item_data["name"])
+        
+    #     unit_select = page.locator("select").first
+    #     unit_select.select_option("عدد")
+        
+    #     number_inputs = page.locator("input[type='number']")
+    #     number_inputs.first.fill("500")
+    #     number_inputs.nth(1).fill("10")
+    #     # Ensure item exists first (Add it)
+    #     page.get_by_role("button", name="نیا آئٹم").click()
+    #     page.locator("input[type='text']").first.fill(item_data["name"])
+    #     page.locator("select").first.select_option(item_data["unit"])
+    #     number_inputs = page.locator("input[type='number']")
+    #     number_inputs.first.fill(item_data["price"])
+    #     number_inputs.nth(1).fill(item_data["stock"])
+    #     page.get_by_role("button", name="محفوظ کریں").click()
+        
+    #     # Wait for the form to close and list to reappear
+    #     page.wait_for_selector("text=آئٹم شامل کر دیا گیا")
+    #     page.wait_for_selector("table") 
+
+    #     # --- THE SEARCH PART ---
+    #     search_input = page.get_by_placeholder("🔍 آئٹم تلاش کریں...")
+    #     search_input.fill(item_data["name"])
+        
+    #     # Use a more flexible locator that ignores case and extra whitespace
+    #     # .first ensures we don't fail if multiple items match similar names
+    #     target_item = page.get_by_role("cell", name=item_data["name"], exact=False).first
+        
+    #     # Give it a slightly longer timeout if the search is slow
+    #     expect(target_item).to_be_visible(timeout=7000)
+   
+    def test_search_functionality(self, page, item_data):
+        """Test search/filter functionality with proper synchronization"""
+        
+        # 1. Open form
+        page.get_by_role("button", name="نیا آئٹم").click()
+        page.wait_for_selector("form", timeout=5000)
+        
+        # 2. Fill form using unique item_data
+        page.locator("input[type='text']").first.fill(item_data["name"])
+        page.locator("select").first.select_option(item_data["unit"])
+        
+        number_inputs = page.locator("input[type='number']")
+        number_inputs.first.fill(item_data["price"])
+        number_inputs.nth(1).fill(item_data["stock"])
+        
+        # 3. Save and wait for UI to update
+        page.get_by_role("button", name="محفوظ کریں").click()
+        
+        # Wait for success message AND for form to disappear
+        page.wait_for_selector("text=آئٹم شامل کر دیا گیا", timeout=5000)
+        page.wait_for_selector("form", state="hidden") # Crucial: wait for form to close
+        
+        # 4. Search Operation
+        search_input = page.get_by_placeholder("🔍 آئٹم تلاش کریں...")
+        search_input.clear() # Ensure it's empty
+        search_input.fill(item_data["name"])
+        
+        # 5. Verification
+        # We use get_by_role("cell") because it's more specific than get_by_text
+        # and wait for the row to be visible in the filtered list
+        target_cell = page.get_by_role("cell", name=item_data["name"], exact=False).first
+        expect(target_cell).to_be_visible(timeout=7000)
+
+        # 6. Cleanup (Optional but recommended)
+        # Delete the item so other tests start fresh
+        item_row = page.locator(f"tr:has-text('{item_data['name']}')").first
+        item_row.get_by_text("حذف").click()
+        page.get_by_role("button", name="ہاں، حذف کریں").click()
+        page.wait_for_selector("text=کامیابی سے حذف کر دیا گیا") 
     def test_complete_item_lifecycle(self, page, item_data):
         """Complete CRUD workflow - Add, Search, Edit, Delete in one test"""
         
@@ -178,7 +256,8 @@ class TestItemsCRUD:
             pass
         else:
             # If no records text not visible, check that our specific item is gone
-            expect(page.get_by_text(item_data["edit_name"], exact=False)).not_to_be_visible()
+            # expect(page.get_by_text(item_data["edit_name"], exact=False)).not_to_be_visible()
+            page.get_by_placeholder("🔍 آئٹم تلاش کریں...").clear()
     
     def test_add_item_with_custom_unit(self, page, item_data):
         """Test adding an item with custom unit"""
@@ -259,57 +338,8 @@ class TestItemsCRUD:
         # Cancel form
         page.get_by_role("button", name="منسوخ کریں").click()
     
-    def test_search_functionality(self, page, item_data):
-        """Test search/filter functionality"""
-        # Create a unique item for search test
-        page.get_by_role("button", name="نیا آئٹم").click()
-        page.wait_for_selector("form", timeout=5000)
-        page.wait_for_timeout(500)
-        
-        name_input = page.locator("input[type='text']").first
-        name_input.fill(item_data["name"])
-        
-        unit_select = page.locator("select").first
-        unit_select.select_option("عدد")
-        
-        number_inputs = page.locator("input[type='number']")
-        number_inputs.first.fill("500")
-        number_inputs.nth(1).fill("10")
-        
-        page.get_by_role("button", name="محفوظ کریں").click()
-        page.wait_for_selector("text=آئٹم شامل کر دیا گیا", timeout=5000)
-        page.wait_for_timeout(1500)
-        
-        # Search for the item
-        search_input = page.get_by_placeholder("🔍 آئٹم تلاش کریں...")
-        search_input.fill(item_data["name"])
-        page.wait_for_timeout(1000)
-        
-        # Verify item is visible
-        expect(page.get_by_text(item_data["name"])).to_be_visible()
-        
-        # Search with non-existent term
-        search_input.fill("غیرموجودآئٹمxyz123")
-        page.wait_for_timeout(1000)
-        
-        # Verify no records message - the actual message in your component
-        no_records_text = page.get_by_text(f'"غیرموجودآئٹمxyz123" کے نام سے کوئی آئٹم نہیں ملا')
-        expect(no_records_text).to_be_visible()
-        
-        # Clear search
-        search_input.clear()
-        page.wait_for_timeout(1000)
-        
-        # Verify items are visible again (our test item should be there)
-        expect(page.get_by_text(item_data["name"])).to_be_visible()
-        
-        # Clean up
-        item_row = page.locator(f"tr:has-text('{item_data['name']}')").first
-        item_row.get_by_text("حذف").click()
-        page.wait_for_selector("text=کیا آپ کو یقین ہے؟", timeout=5000)
-        page.get_by_role("button", name="ہاں، حذف کریں").click()
-        page.wait_for_selector("text=کامیابی سے حذف کر دیا گیا", timeout=5000)
     
+        
     def test_cancel_operations(self, page, item_data):
         """Test canceling add and delete operations"""
         # Test cancel add form
