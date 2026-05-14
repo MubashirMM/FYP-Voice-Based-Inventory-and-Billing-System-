@@ -58,45 +58,6 @@ def item_data():
     }
 
 class TestItemsCRUD:
-    # def test_search_functionality(self, page, item_data):
-    #     """Test search/filter functionality"""
-    #     # Create a unique item for search test
-    #     page.get_by_role("button", name="نیا آئٹم").click()
-    #     page.wait_for_selector("form", timeout=5000)
-    #     page.wait_for_timeout(500)
-        
-    #     name_input = page.locator("input[type='text']").first
-    #     name_input.fill(item_data["name"])
-        
-    #     unit_select = page.locator("select").first
-    #     unit_select.select_option("عدد")
-        
-    #     number_inputs = page.locator("input[type='number']")
-    #     number_inputs.first.fill("500")
-    #     number_inputs.nth(1).fill("10")
-    #     # Ensure item exists first (Add it)
-    #     page.get_by_role("button", name="نیا آئٹم").click()
-    #     page.locator("input[type='text']").first.fill(item_data["name"])
-    #     page.locator("select").first.select_option(item_data["unit"])
-    #     number_inputs = page.locator("input[type='number']")
-    #     number_inputs.first.fill(item_data["price"])
-    #     number_inputs.nth(1).fill(item_data["stock"])
-    #     page.get_by_role("button", name="محفوظ کریں").click()
-        
-    #     # Wait for the form to close and list to reappear
-    #     page.wait_for_selector("text=آئٹم شامل کر دیا گیا")
-    #     page.wait_for_selector("table") 
-
-    #     # --- THE SEARCH PART ---
-    #     search_input = page.get_by_placeholder("🔍 آئٹم تلاش کریں...")
-    #     search_input.fill(item_data["name"])
-        
-    #     # Use a more flexible locator that ignores case and extra whitespace
-    #     # .first ensures we don't fail if multiple items match similar names
-    #     target_item = page.get_by_role("cell", name=item_data["name"], exact=False).first
-        
-    #     # Give it a slightly longer timeout if the search is slow
-    #     expect(target_item).to_be_visible(timeout=7000)
    
     def test_search_functionality(self, page, item_data):
         """Test search/filter functionality with proper synchronization"""
