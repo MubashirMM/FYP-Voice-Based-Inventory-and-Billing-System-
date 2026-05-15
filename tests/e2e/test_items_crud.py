@@ -2,6 +2,7 @@ import pytest
 from playwright.sync_api import sync_playwright, expect
 import uuid
 import time
+import re
 
 @pytest.fixture(scope="module")
 def browser_instance():
@@ -15,19 +16,38 @@ def page(browser_instance):
     context = browser_instance.new_context()
     page = context.new_page()
     
-    # First login to get authenticated
+    # Register new user
+    unique_id = int(time.time())
+    email = f"test_{unique_id}@example.com"
+    username = f"user_{unique_id}"
+    password = "Password@123"
+    
+    page.goto("http://localhost:5173/register")
+    page.get_by_placeholder("ای میل درج کریں").fill(email)
+    page.get_by_placeholder("یوزر نیم درج کریں").fill(username)
+    page.get_by_placeholder("پاس ورڈ درج کریں").fill(password)
+    page.get_by_placeholder("پاس ورڈ دوبارہ درج کریں").fill(password)
+    page.get_by_role("button", name="رجسٹر کریں").click()
+    
+    # Handle voice samples
+    try:
+        page.wait_for_url("**/voice-samples-form**", timeout=5000)
+        skip_btn = page.get_by_role("button", name=re.compile(r"skip|تجاوز|چھوڑیں", re.I))
+        if skip_btn.count() > 0:
+            skip_btn.first.click()
+    except:
+        pass
+    
+    # Login with new credentials
     page.goto("http://localhost:5173/login")
-    page.get_by_placeholder("ای میل درج کریں").fill("32304mubashir@gmail.com")
-    page.get_by_placeholder("پاس ورڈ درج کریں").fill("Pass1234!")
+    page.get_by_placeholder("ای میل درج کریں").fill(email)
+    page.get_by_placeholder("پاس ورڈ درج کریں").fill(password)
     page.get_by_role("button", name="لاگ ان کریں").click()
     
-    # Wait for login to complete
     page.wait_for_url(lambda url: "items" in url.lower() or "dashboard" in url.lower(), timeout=15000)
     
-    # If not already on items page, navigate to items
     if "/items" not in page.url:
         try:
-            # Try multiple possible selectors for items navigation
             items_link = page.get_by_text("آئٹمز", exact=False).first
             if items_link.is_visible():
                 items_link.click()
@@ -37,11 +57,11 @@ def page(browser_instance):
         except:
             page.goto("http://localhost:5173/items")
     
-    # Wait for items page to load - look for the main elements
     page.wait_for_selector("button:has-text('نیا آئٹم')", timeout=10000)
     
     yield page
     context.close()
+
 
 @pytest.fixture
 def item_data():
@@ -57,13 +77,14 @@ def item_data():
         "unit": "کلوگرام"
     }
 
+
 class TestItemsCRUD:
    
     def test_search_functionality(self, page, item_data):
         """Test search/filter functionality with proper synchronization"""
         
-        # 1. Open form
-        page.get_by_role("button", name="نیا آئٹم").click()
+        # 1. Open form - FIXED with .first
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         page.wait_for_selector("form", timeout=5000)
         
         # 2. Fill form using unique item_data
@@ -97,13 +118,14 @@ class TestItemsCRUD:
         item_row = page.locator(f"tr:has-text('{item_data['name']}')").first
         item_row.get_by_text("حذف").click()
         page.get_by_role("button", name="ہاں، حذف کریں").click()
-        page.wait_for_selector("text=کامیابی سے حذف کر دیا گیا") 
+        page.wait_for_selector("text=کامیابی سے حذف کر دیا گیا", timeout=5000)
+    
     def test_complete_item_lifecycle(self, page, item_data):
         """Complete CRUD workflow - Add, Search, Edit, Delete in one test"""
         
         # ========== 1. CREATE ITEM ==========
-        # Click add button
-        page.get_by_role("button", name="نیا آئٹم").click()
+        # Click add button - FIXED with .first
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         
         # Wait for form to be visible
         page.wait_for_selector("form", timeout=5000)
@@ -222,7 +244,8 @@ class TestItemsCRUD:
     
     def test_add_item_with_custom_unit(self, page, item_data):
         """Test adding an item with custom unit"""
-        page.get_by_role("button", name="نیا آئٹم").click()
+        # FIXED with .first
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         page.wait_for_selector("form", timeout=5000)
         page.wait_for_timeout(500)
         
@@ -268,7 +291,8 @@ class TestItemsCRUD:
     
     def test_form_validation(self, page):
         """Test form validation errors"""
-        page.get_by_role("button", name="نیا آئٹم").click()
+        # FIXED with .first
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         page.wait_for_selector("form", timeout=5000)
         
         # Try to submit empty form
@@ -299,12 +323,10 @@ class TestItemsCRUD:
         # Cancel form
         page.get_by_role("button", name="منسوخ کریں").click()
     
-    
-        
     def test_cancel_operations(self, page, item_data):
         """Test canceling add and delete operations"""
-        # Test cancel add form
-        page.get_by_role("button", name="نیا آئٹم").click()
+        # Test cancel add form - FIXED with .first
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         page.wait_for_selector("form", timeout=5000)
         
         name_input = page.locator("input[type='text']").first
@@ -314,12 +336,12 @@ class TestItemsCRUD:
         page.wait_for_timeout(500)
         
         # Verify form closed and we're back to list
-        expect(page.get_by_role("button", name="نیا آئٹم")).to_be_visible()
+        expect(page.get_by_role("button", name="نیا آئٹم").first).to_be_visible()
         # The item should not be visible since we cancelled
         expect(page.get_by_text(item_data["name"])).not_to_be_visible()
         
         # Now actually create an item to test cancel delete
-        page.get_by_role("button", name="نیا آئٹم").click()
+        page.get_by_role("button", name="نیا آئٹم").first.click()
         page.wait_for_selector("form", timeout=5000)
         page.wait_for_timeout(500)
         
@@ -363,8 +385,8 @@ def test_simplified_item_operations(page):
     """Simplified test that creates and deletes one item using proper selectors"""
     unique_name = f"سادہ ٹیسٹ {uuid.uuid4().hex[:6]}"
     
-    # Create item
-    page.get_by_role("button", name="نیا آئٹم").click()
+    # Create item - FIXED with .first
+    page.get_by_role("button", name="نیا آئٹم").first.click()
     page.wait_for_selector("form", timeout=5000)
     page.wait_for_timeout(500)
     
