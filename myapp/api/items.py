@@ -14,7 +14,7 @@ router = APIRouter(prefix="/items", tags=["items"])
 # CREATE ITEM
 # ============================
 @router.post(
-    "/", 
+    "", 
     response_model=ItemRead, 
     status_code=status.HTTP_201_CREATED,
     summary="نیا آئٹم بنائیں",
@@ -40,7 +40,7 @@ async def create_item(
 # GET ALL ITEMS
 # ============================
 @router.get(
-    "/", 
+    "", 
     response_model=List[ItemRead],
     summary="تمام آئٹمز دیکھیں",
     description="صارف کے تمام آئٹمز کی فہرست دیکھیں"

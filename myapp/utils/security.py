@@ -10,8 +10,9 @@ from myapp.models.user import User
 from myapp.config import settings
 
 SECRET_KEY = settings.SECRET_KEY
-ALGORITHM = settings.ALGORITHM
+ALGORITHM = settings.ALGORITHM 
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.ACCESS_TOKEN_EXPIRE_MINUTES
+
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
@@ -28,16 +29,7 @@ def create_access_token(data: dict, expires_minutes: int = ACCESS_TOKEN_EXPIRE_M
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
-from fastapi import Request
-
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
-    token = request.cookies.get("token")
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="کریڈینشل درست نہیں ہیں"
-        )
-
+async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")

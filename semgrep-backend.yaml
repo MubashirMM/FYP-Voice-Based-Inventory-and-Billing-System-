@@ -1,0 +1,199 @@
+# semgrep-backend.yml
+# Place this in your FastAPI backend project root
+# commond to run 
+# semgrep scan --config p/owasp-top-ten --config p/security-audit --config p/fastapi
+
+rules:
+  # ============================================
+  # SQL Injection Detection
+  # ============================================
+  - id: fastapi-sql-injection
+    pattern-either:
+      - pattern: |
+          cursor.execute($QUERY + ...)
+      - pattern: |
+          cursor.execute(f"...{$VAR}...")
+      - pattern: |
+          $DB.execute(f"...{$VAR}...")
+      - pattern: |
+          $SESSION.execute($QUERY % $VAR)
+    message: |
+      SQL Injection vulnerability detected!
+      NEVER use string concatenation or f-strings in SQL queries.
+      ✅ CORRECT: cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
+      ✅ CORRECT (SQLAlchemy): session.execute(text("SELECT * FROM users WHERE id = :id"), {"id": user_id})
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+
+  # ============================================
+  # Hardcoded Secrets Detection
+  # ============================================
+  - id: fastapi-hardcoded-secrets
+    pattern-either:
+      - pattern: |
+          SECRET_KEY = "$SECRET"
+      - pattern: |
+          JWT_SECRET = "$SECRET"
+      - pattern: |
+          API_KEY = "$SECRET"
+      - pattern: |
+          PASSWORD = "$SECRET"
+      - pattern: |
+          TOKEN = "$SECRET"
+      - pattern: |
+          os.environ["$VAR"] = "$HARDCODED"
+    pattern-not-regex: (example|test|demo|changeme|your-)
+    message: |
+      🔴 Hardcoded secret detected!
+      ✅ FIX: Use environment variables:
+          SECRET_KEY = os.getenv("SECRET_KEY")
+          JWT_SECRET = os.environ.get("JWT_SECRET")
+    languages: [python]
+    severity: ERROR
+    metadata:
+      category: security
+
+  # ============================================
+  # Debug Mode in Production
+  # ============================================
+  - id: fastapi-debug-mode
+    pattern: |
+      app = FastAPI(debug=True)
+    message: |
+      ⚠️ Debug mode enabled in FastAPI!
+      Debug mode exposes sensitive error details and stack traces.
+      ✅ FIX: Use environment variable:
+          DEBUG = os.getenv("DEBUG", "False").lower() == "true"
+          app = FastAPI(debug=DEBUG)
+    languages: [python]
+    severity: WARNING
+
+  # ============================================
+  # Missing Authentication on Routes
+  # ============================================
+  - id: fastapi-missing-auth
+    pattern: |
+      @app.$METHOD("$PATH")
+      def $FUNC(...):
+        ...
+    pattern-not: |
+      @app.$METHOD("$PATH")
+      @$DECORATOR
+      def $FUNC(...):
+        ...
+    pattern-not-regex: (Depends|current_user|get_current_user|require_auth|@login_required)
+    message: |
+      ⚠️ This endpoint may be missing authentication!
+      ✅ ADD to protected routes:
+          from fastapi import Depends
+          from .auth import get_current_user
+          
+          @app.get("/protected")
+          async def protected_route(current_user: User = Depends(get_current_user)):
+              ...
+    languages: [python]
+    severity: WARNING
+
+  # ============================================
+  # CORS Wildcard (Security Risk)
+  # ============================================
+  - id: fastapi-cors-wildcard
+    pattern: |
+      allow_origins=["*"]
+    message: |
+      ⚠️ CORS with wildcard '*' allows ANY domain to access your API!
+      ✅ FIX: Specify exact allowed origins:
+          allow_origins=["https://yourdomain.com", "https://app.yourdomain.com"]
+          # OR for development:
+          allow_origins=["http://localhost:3000"]
+    languages: [python]
+    severity: WARNING
+
+  # ============================================
+  # Path Traversal Vulnerability
+  # ============================================
+  - id: fastapi-path-traversal
+    pattern-either:
+      - pattern: |
+          open(f"$PATH/{$USER_INPUT}")
+      - pattern: |
+          Path(f"$PATH/{$USER_INPUT}")
+    message: |
+      🔴 Path Traversal vulnerability!
+      Attackers can use "../" to access sensitive files.
+      ✅ FIX: Sanitize user input:
+          import os
+          filename = os.path.basename(user_input)
+          full_path = os.path.join(BASE_DIR, filename)
+    languages: [python]
+    severity: ERROR
+
+  # ============================================
+  # Weak Password Hashing
+  # ============================================
+  - id: fastapi-weak-hash
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: |
+      🔴 Weak hashing algorithm detected!
+      MD5 and SHA1 are cryptographically broken for passwords.
+      ✅ USE: passlib.context.CryptContext with bcrypt:
+          from passlib.context import CryptContext
+          pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    languages: [python]
+    severity: ERROR
+
+  # ============================================
+  # Insecure Direct Object Reference (IDOR)
+  # ============================================
+  - id: fastapi-idor-risk
+    pattern: |
+      @app.get("/$RESOURCE/{$ID}")
+      def $FUNC($ID: int, ...):
+          $OBJECT = $DB.query.filter_by(id=$ID).first()
+    pattern-not: |
+      @app.get("/$RESOURCE/{$ID}")
+      def $FUNC($ID: int, current_user: User = Depends(get_current_user)):
+          $OBJECT = $DB.query.filter_by(id=$ID, user_id=current_user.id).first()
+    message: |
+      ⚠️ Potential IDOR (Insecure Direct Object Reference)!
+      Users might access other users' data by changing the ID.
+      ✅ FIX: Always verify ownership:
+          item = db.query(Item).filter(Item.id==item_id, Item.user_id==current_user.id).first()
+          if not item: raise HTTPException(404)
+    languages: [python]
+    severity: WARNING
+
+  # ============================================
+  # Pickle Deserialization (Dangerous)
+  # ============================================
+  - id: fastapi-pickle-unsafe
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+    message: |
+      🔴 Unsafe deserialization with pickle!
+      Pickle can execute arbitrary code during deserialization.
+      ✅ Use JSON or other safe formats for untrusted data.
+    languages: [python]
+    severity: ERROR
+
+  # ============================================
+  # Command Injection
+  # ============================================
+  - id: fastapi-command-injection
+    pattern-either:
+      - pattern: os.system(f"...{$USER_INPUT}...")
+      - pattern: subprocess.call(f"...{$USER_INPUT}...", shell=True)
+      - pattern: subprocess.Popen(f"...{$USER_INPUT}...", shell=True)
+    message: |
+      🔴 Command Injection vulnerability!
+      User input passed directly to shell commands.
+      ✅ FIX: Avoid shell=True and use parameter lists:
+          subprocess.run(["ls", "-la", safe_filename])
+    languages: [python]
+    severity: ERROR

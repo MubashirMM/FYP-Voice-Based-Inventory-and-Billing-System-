@@ -45,32 +45,10 @@ async def register(payload: UserRegister, db: AsyncSession = Depends(get_db)):
 # ============================
 # LOGIN (PASSWORD)
 # ============================
-from fastapi import Response
-
 @router.post("/login")
-async def login(
-    response: Response,
-    payload: OAuth2PasswordRequestForm = Depends(),
-    db: AsyncSession = Depends(get_db)
-):
+async def login(payload: OAuth2PasswordRequestForm = Depends(), db: AsyncSession = Depends(get_db)):
     token = await authenticate_user(db, payload.username, payload.password)
-
-    # Set HttpOnly cookie
-    response.set_cookie(
-        key="token",
-        value=token,
-        httponly=True,
-        secure=True,       # only over HTTPS
-        samesite="Strict", # prevent CSRF
-        max_age=1800       # 30 minutes
-    )
-
-    return {"detail": "Login successful"}
-
-@router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie("token")
-    return {"detail": "Logged out"}
+    return {"access_token": token, "token_type": "bearer"}
 
 
 # ============================

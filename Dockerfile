@@ -1,35 +1,32 @@
-# 1. Using the cached Bitnami image
+# 1. Base Image
 FROM bitnami/pytorch:latest
 
-# 2. Environment variables
+# 2. Environment setups
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV PATH="/opt/bitnami/python/bin:$PATH"
 
-# 3. Set working directory
-WORKDIR /code
-
-# 4. Install ONLY the basic build tools (these exist in core repo)
+# 3. Elevate to root briefly to install dependencies
 USER root
-RUN tdnf update -y && tdnf install -y \
-    build-essential \
-    gcc \
-    && tdnf clean all
 
-# 5. Copy requirements
-COPY ./requirements.txt /code/requirements.txt
+# 4. App Directory
+WORKDIR /app
 
-# 6. Install Python dependencies 
-# We add imageio-ffmpeg here so Whisper/Librosa can find a working ffmpeg binary
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir imageio-ffmpeg && \
-    pip install --no-cache-dir -r /code/requirements.txt
+# 5. Handle Requirements
+COPY requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir --upgrade -r /app/requirements.txt
 
-# 7. Copy your application code and env
-COPY ./myapp /code/myapp
-COPY .env /code/.env
+# 6. Copy Application Code
+COPY . /app
 
-# 8. Expose port
+# 7. Change ownership to Bitnami's built-in non-root user (1001)
+RUN chown -R 1001:1001 /app
+
+# ==========================================================
+# 8. SWITCH BACK TO NON-ROOT USER (This satisfies Semgrep)
+# ==========================================================
+USER 1001
+
+# 9. Execution Engine
 EXPOSE 8000
-
-# 9. Run the application
-CMD ["uvicorn", "myapp.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

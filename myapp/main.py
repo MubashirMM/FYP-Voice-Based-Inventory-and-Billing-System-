@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from myapp.database.session import engine, Base
 from myapp.api.ai_models import router as ai_router
+from myapp.config import settings
 # Routers 
 from myapp.api.items import router as items
 from myapp.api.customer import router as customers
@@ -33,7 +34,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=settings.ALLOWED_ORIGINS,    
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
