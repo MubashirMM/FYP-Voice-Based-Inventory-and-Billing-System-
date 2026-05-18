@@ -282,3 +282,300 @@
     
 #     await db.commit()
 #     return deleted_count
+
+
+import random
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import select, func, update, text
+from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import HTTPException, BackgroundTasks
+from concurrent.futures import ThreadPoolExecutor
+import asyncio
+
+from myapp.utils.security import hash_password, verify_password, create_access_token
+from myapp.models.user import User
+from myapp.schemas.user import ProfileUpdate
+from myapp.services.email import (
+    send_email_async, registration_template, login_template, 
+    voice_samples_template, voice_login_template, profile_update_template,
+    password_reset_template, password_changed_template, account_deleted_template
+)
+
+_cpu_executor = ThreadPoolExecutor(max_workers=8)
+
+async def run_cpu_bound(func, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_cpu_executor, lambda: func(*args, **kwargs))
+
+_user_cache = {}
+_CACHE_TTL = 60
+
+def _get_cached_user(email: str):
+    key = email.strip().lower()
+    if key in _user_cache:
+        user, timestamp = _user_cache[key]
+        if (datetime.now(timezone.utc) - timestamp).seconds < _CACHE_TTL:
+            return user
+        del _user_cache[key]
+    return None
+
+def _cache_user(email: str, user):
+    key = email.strip().lower()
+    _user_cache[key] = (user, datetime.now(timezone.utc))
+
+def _invalidate_cache(email: str):
+    key = email.strip().lower()
+    _user_cache.pop(key, None)
+
+async def register_user(db: AsyncSession, email: str, username: str, password: str, background_tasks: BackgroundTasks = None):
+    normalized_email = email.strip().lower()
+    
+    query = text("SELECT 1 FROM users WHERE LOWER(email) = :email LIMIT 1")
+    exists = await db.execute(query, {"email": normalized_email})
+    
+    if exists.scalar():
+        raise HTTPException(400, "یہ ای میل پہلے سے رجسٹرڈ ہے۔")
+    
+    hashed_password = await run_cpu_bound(hash_password, password)
+    
+    insert_query = text("""
+        INSERT INTO users (email, username, password_hash, created_at)
+        VALUES (:email, :username, :password_hash, :created_at)
+        RETURNING user_id, email, username, created_at
+    """)
+    
+    result = await db.execute(insert_query, {
+        "email": normalized_email,
+        "username": username,
+        "password_hash": hashed_password,
+        "created_at": datetime.now(timezone.utc)
+    })
+    
+    row = result.fetchone()
+    user = User(
+        user_id=row[0],
+        email=row[1],
+        username=row[2],
+        created_at=row[3],
+        password_hash=hashed_password
+    )
+    
+    await db.commit()
+    _cache_user(normalized_email, user)
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, normalized_email, "خوش آمدید", registration_template(username))
+    
+    return user
+
+async def authenticate_user(db: AsyncSession, email: str, password: str, background_tasks: BackgroundTasks = None):
+    normalized_email = email.strip().lower()
+    
+    user = _get_cached_user(normalized_email)
+    if not user:
+        result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+        user = result.scalar_one_or_none()
+        if user:
+            _cache_user(normalized_email, user)
+    
+    if not user:
+        raise HTTPException(401, "ای میل رجسٹرڈ نہیں ہے۔")
+    
+    is_valid = await run_cpu_bound(verify_password, password, user.password_hash)
+    
+    if not is_valid:
+        raise HTTPException(401, "پاس ورڈ غلط ہے۔")
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, user.email, "لاگ ان", login_template(user.username))
+    
+    return create_access_token({"sub": str(user.user_id)})
+# myapp/crud/user.py - Fixed update_own_profile function
+
+async def update_own_profile(db: AsyncSession, user_id: int, update_data: ProfileUpdate, background_tasks: BackgroundTasks = None):
+    data = update_data.model_dump(exclude_unset=True)
+    
+    # Remove confirm_password if present
+    data.pop("confirm_password", None)
+    
+    if not data:
+        return await db.get(User, user_id)
+    
+    update_fields = []
+    update_values = {}
+    email_changed = False
+    new_email = None
+    
+    for key, value in data.items():
+        if key == "password":
+            hashed = await run_cpu_bound(hash_password, value)
+            update_fields.append("password_hash = :password_hash")
+            update_values["password_hash"] = hashed
+        elif key == "email":
+            new_email = value.strip().lower()
+            check_query = text("SELECT 1 FROM users WHERE LOWER(email) = :email AND user_id != :user_id LIMIT 1")
+            exists = await db.execute(check_query, {"email": new_email, "user_id": user_id})
+            if exists.scalar():
+                raise HTTPException(400, "یہ ای میل پہلے سے رجسٹرڈ ہے۔")
+            update_fields.append("email = :email")
+            update_values["email"] = new_email
+            email_changed = True
+        elif key == "username":
+            update_fields.append("username = :username")
+            update_values["username"] = value
+    
+    if not update_fields:
+        return await db.get(User, user_id)
+    
+    update_values["user_id"] = user_id
+    
+    # Remove updated_at - not in your table
+    update_query = text(f"""
+        UPDATE users 
+        SET {', '.join(update_fields)}
+        WHERE user_id = :user_id
+    """)
+    
+    await db.execute(update_query, update_values)
+    await db.commit()
+    
+    user = await db.get(User, user_id)
+    
+    if email_changed and new_email:
+        _invalidate_cache(new_email)
+    
+    if background_tasks and user:
+        background_tasks.add_task(send_email_async, user.email, "پروفائل اپڈیٹ", profile_update_template(user.username, user.email))
+    
+    return user
+async def delete_user(db: AsyncSession, user_id: int, background_tasks: BackgroundTasks = None):
+    # Get user with ORM (not raw SQL)
+    user = await db.get(User, user_id)
+    
+    if not user:
+        return False
+    
+    email = user.email
+    username = user.username
+    
+    # Use ORM delete - this will trigger CASCADE
+    await db.delete(user)
+    await db.commit()
+    
+    _invalidate_cache(email)
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, email, "اکاؤنٹ ڈیلیٹ", account_deleted_template(username))
+    
+    return True
+async def get_all_users(db: AsyncSession):
+    result = await db.execute(select(User))
+    return result.scalars().all()
+
+async def get_user_by_id(db: AsyncSession, user_id: int):
+    result = await db.execute(select(User).where(User.user_id == user_id))
+    return result.scalar_one_or_none()
+
+async def get_user_by_email(db: AsyncSession, email: str):
+    normalized_email = email.strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    return result.scalar_one_or_none()
+
+async def save_voice_samples(db: AsyncSession, email: str, samples: list[str], background_tasks: BackgroundTasks = None):
+    from myapp.utils.voice import combine_embeddings
+    
+    normalized_email = email.strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        return None
+    
+    voice_embedding = await run_cpu_bound(combine_embeddings, samples)
+    user.voice_embedding = voice_embedding
+    await db.commit()
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, user.email, "وائس محفوظ", voice_samples_template(user.username))
+    
+    return user
+
+async def authenticate_voice(db: AsyncSession, email: str, audio_base64: str, background_tasks: BackgroundTasks = None):
+    from myapp.utils.voice import match_voice
+    
+    normalized_email = email.strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        raise HTTPException(404, detail="ای میل رجسٹرڈ نہیں ہے۔")
+    
+    if not user.voice_embedding:
+        raise HTTPException(400, detail="آپ کی آواز رجسٹرڈ نہیں ہے۔ براہ کرم پہلے وائس رجسٹر کریں۔")
+    
+    # Get match result and similarity score
+    is_match, similarity = await run_cpu_bound(match_voice, user.voice_embedding, audio_base64)
+    
+    if is_match:
+        if background_tasks:
+            background_tasks.add_task(send_email_async, user.email, "وائس لاگ ان", voice_login_template(user.username))
+        return user
+    
+    # Calculate required improvement
+    required_improvement = (0.7 - similarity) * 100
+    raise HTTPException(
+    status_code=401, 
+    detail=f"آواز کی مطابقت درست نہیں پائی گئی۔ مماثلت {similarity*100:.1f} فیصد ہے، جبکہ کم از کم 70 فیصد ہونا ضروری ہے۔ براہ کرم دوبارہ کوشش کریں۔"
+)
+async def initiate_password_reset(db: AsyncSession, email: str, background_tasks: BackgroundTasks = None):
+    normalized_email = email.strip().lower()
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        return None
+    
+    code = f"VBUGIMS-{random.randint(100000, 999999)}"
+    user.password_reset_code = code
+    user.password_reset_expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
+    await db.commit()
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, user.email, "پاس ورڈ ری سیٹ", password_reset_template(code))
+    
+    return code
+
+async def reset_password_in_db(db: AsyncSession, email: str, reset_code: str, new_password: str, background_tasks: BackgroundTasks = None):
+    normalized_email = email.strip().lower()
+    
+    result = await db.execute(
+        select(User).where(
+            func.lower(User.email) == normalized_email,
+            User.password_reset_code == reset_code,
+            User.password_reset_expiry > datetime.now(timezone.utc)
+        )
+    )
+    user = result.scalar_one_or_none()
+    
+    if not user:
+        return False
+    
+    hashed_password = await run_cpu_bound(hash_password, new_password)
+    
+    await db.execute(
+        update(User)
+        .where(User.user_id == user.user_id)
+        .values(
+            password_hash=hashed_password,
+            password_reset_code=None,
+            password_reset_expiry=None
+        )
+    )
+    await db.commit()
+    
+    _invalidate_cache(normalized_email)
+    
+    if background_tasks:
+        background_tasks.add_task(send_email_async, user.email, "پاس ورڈ تبدیل", password_changed_template(user.username))
+    
+    return True

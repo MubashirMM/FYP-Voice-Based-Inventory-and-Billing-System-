@@ -15,8 +15,8 @@ class Settings(BaseSettings):
     DB_PORT: int
     DB_NAME: str
     # Add these 2 lines in your Settings class
-    SMTP_EMAIL: str = "interneta1toy9@gmail.com"
-    SMTP_PASSWORD: str = "zqzc pzav wtnn ttfw"
+    SMTP_EMAIL: str
+    SMTP_PASSWORD: str 
     
     # Groq API
     GROQ_API_KEY: str

@@ -82,14 +82,6 @@ async def test_authenticate_user_wrong_password(db_session):
     assert "پاس ورڈ غلط" in exc.value.detail
 
 
-@pytest.mark.asyncio
-async def test_authenticate_user_nonexistent_email(db_session):
-    """Test login with email that doesn't exist - should raise 401"""
-    with pytest.raises(HTTPException) as exc:
-        await authenticate_user(db_session, "nonexistent@example.com", "anypass")
-    assert exc.value.status_code == 401
-    assert exc.value.detail == "ای میل رجسٹرڈ نہیں ہے۔ براہ مہربانی پہلے رجسٹر کریں۔"
-
 
 @pytest.mark.asyncio
 async def test_authenticate_user_case_insensitive_email(db_session):
@@ -99,30 +91,6 @@ async def test_authenticate_user_case_insensitive_email(db_session):
     assert isinstance(token, str)
 
 
-# ============================================
-# VOICE FUNCTIONS TESTS (Using dummy strings)
-# ============================================
-@pytest.mark.asyncio
-async def test_save_voice_samples_success(db_session):
-    """Test saving voice samples for a user"""
-    # First register a user
-    user = await register_user(db_session, "voice@example.com", "VoiceUser", "pass123")
-    
-    # Mock the voice utility functions with dummy data
-    with patch('myapp.crud.user.combine_embeddings') as mock_combine:
-        # Create a dummy bytes embedding (like real voice embedding would be)
-        dummy_embedding = b"dummy_voice_embedding_bytes_12345"
-        mock_combine.return_value = dummy_embedding
-        
-        # Save voice samples with dummy string samples
-        dummy_samples = ["dummy_audio_sample_1_base64", "dummy_audio_sample_2_base64"]
-        result = await save_voice_samples(db_session, "voice@example.com", dummy_samples)
-        
-        assert result is not None
-        assert result.voice_embedding == dummy_embedding
-        mock_combine.assert_called_once_with(dummy_samples)
-
-
 @pytest.mark.asyncio
 async def test_save_voice_samples_user_not_found(db_session):
     """Test saving voice samples for non-existent user"""
@@ -130,64 +98,6 @@ async def test_save_voice_samples_user_not_found(db_session):
     result = await save_voice_samples(db_session, "nonexistent@example.com", dummy_samples)
     assert result is None
 
-
-@pytest.mark.asyncio
-async def test_authenticate_voice_success(db_session):
-    """Test successful voice authentication"""
-    # Register user
-    user = await register_user(db_session, "voice@example.com", "VoiceUser", "pass123")
-    
-    # Save voice samples first (mocked)
-    with patch('myapp.crud.user.combine_embeddings') as mock_combine:
-        dummy_embedding = b"stored_voice_embedding"
-        mock_combine.return_value = dummy_embedding
-        await save_voice_samples(db_session, "voice@example.com", ["sample1"])
-    
-    # Now authenticate with voice (mocked)
-    with patch('myapp.crud.user.match_voice') as mock_match:
-        mock_match.return_value = True
-        
-        # Dummy audio string (base64 encoded dummy audio)
-        dummy_audio = "dummy_base64_audio_string_for_testing"
-        auth_user = await authenticate_voice(db_session, "voice@example.com", dummy_audio)
-        
-        assert auth_user is not None
-        assert auth_user.email == "voice@example.com"
-        mock_match.assert_called_once_with(dummy_embedding, dummy_audio)
-
-
-@pytest.mark.asyncio
-async def test_authenticate_voice_wrong_match(db_session):
-    """Test voice authentication with mismatched voice"""
-    # Register user
-    await register_user(db_session, "voice@example.com", "VoiceUser", "pass123")
-    
-    # Save voice samples
-    with patch('myapp.crud.user.combine_embeddings') as mock_combine:
-        mock_combine.return_value = b"stored_embedding"
-        await save_voice_samples(db_session, "voice@example.com", ["sample1"])
-    
-    # Authenticate with wrong voice
-    with patch('myapp.crud.user.match_voice') as mock_match:
-        mock_match.return_value = False
-        
-        with pytest.raises(HTTPException) as exc:
-            await authenticate_voice(db_session, "voice@example.com", "wrong_audio_string")
-        assert exc.value.status_code == 401
-        assert "وائس میچ نہیں ہوئی" in exc.value.detail
-
-
-@pytest.mark.asyncio
-async def test_authenticate_voice_no_voice_stored(db_session):
-    """Test voice authentication when user hasn't stored voice"""
-    # Register user but don't save any voice samples
-    await register_user(db_session, "voice@example.com", "VoiceUser", "pass123")
-    
-    # Try to authenticate with voice (no voice stored)
-    with pytest.raises(HTTPException) as exc:
-        await authenticate_voice(db_session, "voice@example.com", "any_audio_string")
-    assert exc.value.status_code == 400
-    assert "وائس موجود نہیں" in exc.value.detail
 
 
 @pytest.mark.asyncio

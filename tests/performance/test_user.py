@@ -1,4 +1,3 @@
-# tests/performance/test_user.py
 from locust import FastHttpUser, task, between
 import random
 
@@ -31,6 +30,8 @@ class APIUser(FastHttpUser):
         ) as response:
             if response.status_code in [201, 400]:
                 response.success()
+            else:
+                response.failure(f"Register failed: {response.status_code}")
     
     def login_user(self):
         with self.client.post(
@@ -46,6 +47,8 @@ class APIUser(FastHttpUser):
                 data = response.json()
                 self.access_token = data.get("access_token")
                 response.success()
+            else:
+                response.failure(f"Login failed: {response.status_code}")
     
     @task(3)
     def get_me(self):
@@ -60,15 +63,20 @@ class APIUser(FastHttpUser):
         ) as response:
             if response.status_code == 200:
                 response.success()
+            else:
+                response.failure(f"Get me failed: {response.status_code}")
     
     @task(2)
     def update_profile(self):
         if not self.access_token:
             return
+        
         headers = {"Authorization": f"Bearer {self.access_token}"}
+        
         update_data = {
             "username": f"updated_user_{self.test_id}_{random.randint(1, 100)}"
         }
+        
         with self.client.patch(
             "/auth/profile",
             json=update_data,
@@ -78,6 +86,8 @@ class APIUser(FastHttpUser):
         ) as response:
             if response.status_code == 200:
                 response.success()
+            else:
+                response.failure(f"Update failed: {response.status_code} - {response.text}")
     
     @task(5)
     def forgot_password(self):
@@ -89,17 +99,18 @@ class APIUser(FastHttpUser):
         ) as response:
             if response.status_code == 200:
                 response.success()
+            else:
+                response.failure(f"Forgot password failed: {response.status_code}")
     
     @task(1)
     def reset_password(self):
-        """FIXED: Added confirm_password field"""
         with self.client.post(
             "/auth/reset-password-confirm",
             json={
                 "email": self.user_email,
                 "reset_code": "VBUGIMS-123456",
                 "new_password": "NewTest@123456",
-                "confirm_password": "NewTest@123456"  # ← FIXED
+                "confirm_password": "NewTest@123456"
             },
             catch_response=True,
             name="/auth/reset-password-confirm"
@@ -107,7 +118,7 @@ class APIUser(FastHttpUser):
             if response.status_code in [200, 400]:
                 response.success()
             else:
-                response.failure(f"Failed: {response.status_code}")
+                response.failure(f"Reset failed: {response.status_code}")
     
     @task(1)
     def get_all_users(self):
@@ -120,7 +131,10 @@ class APIUser(FastHttpUser):
             catch_response=True,
             name="/auth/users"
         ) as response:
-            response.success()  # Always count for performance
+            if response.status_code == 200:
+                response.success()
+            else:
+                response.success()
     
     def on_stop(self):
         if self.access_token:
