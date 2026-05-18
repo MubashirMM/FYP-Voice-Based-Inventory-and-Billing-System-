@@ -1,5 +1,4 @@
 
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
@@ -15,6 +14,9 @@ class Settings(BaseSettings):
     DB_HOST: str
     DB_PORT: int
     DB_NAME: str
+    # Add these 2 lines in your Settings class
+    SMTP_EMAIL: str = "interneta1toy9@gmail.com"
+    SMTP_PASSWORD: str = "zqzc pzav wtnn ttfw"
     
     # Groq API
     GROQ_API_KEY: str

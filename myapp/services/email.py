@@ -1,44 +1,80 @@
-import smtplib
+# myapp/services/email_async.py
 import os
+import asyncio
+import aiosmtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.utils import formataddr
+from typing import Optional
+import logging
 
-SMTP_EMAIL = os.getenv("SMTP_EMAIL", "interneta1toy9@gmail.com")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "zqzc pzav wtnn ttfw")
+logger = logging.getLogger(__name__)
 
-# SMTP_EMAIL = os.getenv("SMTP_EMAIL", "socialmediaplatforms12345@gmail.com")
-# SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "zwan qoev ngoo etec")
+# Replace lines 15-17 in email_async.py
+from myapp.config import settings
+
+SMTP_EMAIL = settings.SMTP_EMAIL
+SMTP_PASSWORD = settings.SMTP_PASSWORD
+
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 465
 
 SYSTEM_NAME = "VBUGIMS - میرا اسٹور"
 
+# Connection pool for SMTP
+_smtp_connection: Optional[aiosmtplib.SMTP] = None
+_connection_lock = asyncio.Lock()
 
-# ======================
-# SEND EMAIL
-# ======================
-def send_email(to: str, subject: str, body: str):
+async def get_smtp_connection():
+    """Get or create SMTP connection (reused across requests)"""
+    global _smtp_connection
+    
+    async with _connection_lock:
+        if _smtp_connection is None or not _smtp_connection.is_connected:
+            _smtp_connection = aiosmtplib.SMTP(
+                hostname=SMTP_SERVER,
+                port=SMTP_PORT,
+                use_tls=True,
+                timeout=10
+            )
+            await _smtp_connection.connect()
+            await _smtp_connection.login(SMTP_EMAIL, SMTP_PASSWORD)
+            logger.info("SMTP connection established")
+    
+    return _smtp_connection
+
+async def send_email_async(to: str, subject: str, body: str):
+    """Async version - non-blocking email sending"""
     try:
+        smtp = await get_smtp_connection()
+        
         msg = MIMEMultipart()
         msg["From"] = formataddr((SYSTEM_NAME, SMTP_EMAIL))
         msg["To"] = to
         msg["Subject"] = subject
-
         msg.attach(MIMEText(body, "html", "utf-8"))
-
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=10) as server:
-            server.login(SMTP_EMAIL, SMTP_PASSWORD)
-            server.send_message(msg)
-
-        print(f"✅ Email sent to {to}")
-
+        
+        await smtp.send_message(msg)
+        logger.info(f"✅ Email sent to {to}")
+        
     except Exception as e:
-        print(f"❌ Email error: {str(e)}")
+        logger.error(f"❌ Email error to {to}: {str(e)}")
+        # Don't raise - email failure shouldn't break the API
 
+# Keep sync version for backward compatibility (but make it non-blocking)
+def send_email(to: str, subject: str, body: str):
+    """Sync wrapper - schedules async email sending without blocking"""
+    try:
+        # Try to get running event loop
+        loop = asyncio.get_running_loop()
+        # Already in async context - create task
+        asyncio.create_task(send_email_async(to, subject, body))
+    except RuntimeError:
+        # No running loop - create new loop (for scripts)
+        asyncio.run(send_email_async(to, subject, body))
 
 # ======================
-# BASE TEMPLATE (UI)
+# TEMPLATES (Keep as is)
 # ======================
 def base_template(title: str, message: str, extra: str = ""):
     return f"""
@@ -63,17 +99,11 @@ def base_template(title: str, message: str, extra: str = ""):
     </div>
     """
 
-
-# ======================
-# TEMPLATES
-# ======================
-
 def registration_template(username: str):
     return base_template(
         "🎉 خوش آمدید",
         f"{username}، آپ کا اکاؤنٹ کامیابی سے بنا دیا گیا ہے۔ اب آپ سسٹم استعمال کر سکتے ہیں۔"
     )
-
 
 def login_template(username: str):
     return base_template(
@@ -81,13 +111,11 @@ def login_template(username: str):
         f"{username}، آپ نے کامیابی سے لاگ ان کیا ہے۔ اگر یہ آپ نہیں تھے تو براہ کرم پاس ورڈ تبدیل کریں۔"
     )
 
-
 def voice_login_template(username: str):
     return base_template(
         "🎤 وائس لاگ ان",
         f"{username}، آپ نے وائس کے ذریعے لاگ ان کیا ہے۔"
     )
-
 
 def voice_samples_template(username: str):
     return base_template(
@@ -95,13 +123,11 @@ def voice_samples_template(username: str):
         f"{username}، آپ کی آواز کامیابی سے محفوظ کر لی گئی ہے۔"
     )
 
-
 def profile_update_template(username: str, email: str):
     return base_template(
         "✅ پروفائل اپڈیٹ",
         f"نام: {username}<br>ای میل: {email}"
     )
-
 
 def password_reset_template(code: str):
     return base_template(
@@ -115,13 +141,11 @@ def password_reset_template(code: str):
         """
     )
 
-
 def password_changed_template(username: str):
     return base_template(
         "🔒 پاس ورڈ تبدیل ہو گیا",
         f"{username}، آپ کا پاس ورڈ کامیابی سے تبدیل ہو گیا ہے۔"
     )
-
 
 def account_deleted_template(username: str):
     return base_template(
