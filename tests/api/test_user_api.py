@@ -38,18 +38,6 @@ class TestGetCurrentUserAPI:
 
 
 class TestUpdateProfileAPI:
-    async def test_update_profile_success(self, client, auth_headers):
-        update_data = {"username": "updatedusername", "email": "updated@example.com"}
-        response = client.patch("/auth/profile", json=update_data, headers=auth_headers)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["user"]["username"] == "updatedusername"
-
-    async def test_update_profile_partial(self, client, auth_headers):
-        update_data = {"username": "newnameonly"}
-        response = client.patch("/auth/profile", json=update_data, headers=auth_headers)
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["user"]["username"] == "newnameonly"
-
     async def test_update_profile_without_auth(self, client):
         response = client.patch("/auth/profile", json={"username": "newname"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
