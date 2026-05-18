@@ -5,6 +5,7 @@ TEST_EMAIL_DOMAIN = "@test.com"
 TEST_PASSWORD = "Test@123456"
 
 class APIUser(FastHttpUser):
+    host = "http://localhost:8000"
     wait_time = between(0.5, 2)
     
     def on_start(self):

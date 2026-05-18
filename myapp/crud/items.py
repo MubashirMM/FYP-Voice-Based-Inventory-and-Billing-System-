@@ -175,12 +175,18 @@ async def update_items(db: AsyncSession, item_id: int, item: ItemUpdate, current
 # DELETE ITEM
 # ============================
 async def delete_item(db: AsyncSession, item_id: int, current_user: User):
-    # Get existing item
-    db_item = await read_item(db, item_id, current_user)
+    # 🚀 Optimization: Direct optimized bulk delete statement execution
+    stmt = delete(Item).where(
+        Item.item_id == item_id,
+        Item.user_id == current_user.user_id
+    )
+    result = await db.execute(stmt)
     
-    # Delete the item - related records will have item_id set to NULL
-    # because of ondelete="SET NULL" in foreign key constraints
-    await db.delete(db_item)
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="آئٹم موجود نہیں ہے۔"
+        )
+        
     await db.commit()
-    
     return True
