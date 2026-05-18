@@ -39,10 +39,11 @@ def format_bill_item(i: BillItem):
         "billitem_time": i.billitem_time,
         "billitem_day_name": i.billitem_day_name,
     }
-
+ 
 def format_cart_item(item: BillItem):
-    """Format pending cart item"""
+    """Format pending cart item - FIXED: Include cart_item_id"""
     return {
+        "cart_item_id": item.billitem_id,  # CRITICAL: Map to frontend expected name
         "billitem_id": item.billitem_id,
         "item_id": item.item_id,
         "item_name": item.item_name,
@@ -59,8 +60,6 @@ def format_cart_item(item: BillItem):
         "billitem_time": item.billitem_time,
         "billitem_day_name": item.billitem_day_name,
     }
-
-
 # =========================
 # ADD ITEM TO CART (NO BILL CREATED)
 # =========================
@@ -451,3 +450,93 @@ async def search_bill_items(db: AsyncSession, keyword: str, current_user: User):
         )
     )
     return [format_bill_item(i) for i in res.scalars().all()]
+async def update_cart_item_quantity(
+    db: AsyncSession, 
+    cart_item_id: int, 
+    new_quantity: float,
+    requested_unit: str,
+    current_user: User
+):
+    """Update cart item quantity"""
+    try:
+        # FIXED: Use billitem_id instead of id, and user_id instead of id
+        result = await db.execute(
+            select(BillItem).where(
+                BillItem.billitem_id == cart_item_id,  # FIXED: billitem_id
+                BillItem.user_id == current_user.user_id,  # FIXED: user_id
+                BillItem.bill_id.is_(None)
+            )
+        )
+        cart_item = result.scalar_one_or_none()
+        
+        if not cart_item:
+            raise HTTPException(status_code=404, detail="کارٹ آئٹم موجود نہیں ہے")
+        
+        # Get original item to check stock
+        res_item = await db.execute(
+            select(Item).where(Item.item_id == cart_item.item_id)
+        )
+        item = res_item.scalar_one_or_none()
+        
+        if not item:
+            raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
+        
+        # Calculate new base quantity
+        requested_quantity = new_quantity
+        requested_unit_str = requested_unit
+        
+        item_unit = str(item.item_unit).strip()
+        
+        # Unit conversion logic
+        normalized_item_unit, item_factor = converter.normalize_unit(item_unit, 1)
+        normalized_requested_unit, requested_factor = converter.normalize_unit(requested_unit_str, 1)
+        
+        quantity_in_normalized = requested_quantity * requested_factor
+        
+        if normalized_requested_unit == normalized_item_unit:
+            new_base_quantity = quantity_in_normalized / item_factor
+        else:
+            if not converter.is_compatible(normalized_requested_unit, normalized_item_unit):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"❌ '{requested_unit_str}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا"
+                )
+            
+            converted_value = converter.convert(
+                from_unit=normalized_requested_unit,
+                to_unit=normalized_item_unit,
+                value=quantity_in_normalized
+            )
+            new_base_quantity = converted_value / item_factor
+        
+        # Calculate stock difference
+        stock_difference = new_base_quantity - cart_item.base_quantity
+        
+        # Check if enough stock available
+        if stock_difference > 0 and stock_difference > float(item.stock_quantity):
+            raise HTTPException(
+                status_code=400,
+                detail=f"⚠️ ذخیرہ ناکافی ہے! موجودہ اسٹاک: {item.stock_quantity} {item_unit}"
+            )
+        
+        # Update stock
+        if stock_difference != 0:
+            item.stock_quantity -= stock_difference
+            db.add(item)
+        
+        # Update cart item
+        cart_item.quantity = new_quantity
+        cart_item.requested_unit = requested_unit
+        cart_item.base_quantity = new_base_quantity
+        cart_item.total_amount = new_base_quantity * cart_item.unit_price
+        
+        await db.commit()
+        await db.refresh(cart_item)
+        
+        return {"message": "کارٹ آئٹم اپڈیٹ ہو گیا", "cart_item": cart_item}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"اپڈیٹ کرنے میں خرابی: {str(e)}")

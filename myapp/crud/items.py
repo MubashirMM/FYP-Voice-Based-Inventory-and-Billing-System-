@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import select,delete 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
