@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     DB_HOST: str
     DB_PORT: int
     DB_NAME: str
+
     # Add these 2 lines in your Settings class
     SMTP_EMAIL: str
     SMTP_PASSWORD: str 
@@ -25,6 +26,16 @@ class Settings(BaseSettings):
     GROQ_API_KEY3: str
     GROQ_API_KEY4: str
     GROQ_API_KEY5: str
+    GROQ_API_KEY6: str
+    GROQ_API_KEY7: str
+    GROQ_API_KEY8: str
+    GROQ_API_KEY9: str
+    GROQ_API_KEY10: str
+    GROQ_API_KEY11: str
+    GROQ_API_KEY12: str
+    GROQ_API_KEY13: str
+
+
 
 
     @property

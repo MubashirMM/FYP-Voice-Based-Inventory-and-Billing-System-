@@ -1,4 +1,3 @@
-
 # myapp/crud/bill_item_cart.py
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -20,7 +19,6 @@ from myapp.services.email import low_stock_template, send_email_async
 converter = UnitConverter()
 
 
-# Add this function before list_bill_items
 def format_bill_item(i: BillItem):
     return {
         "billitem_id": i.billitem_id,
@@ -39,11 +37,12 @@ def format_bill_item(i: BillItem):
         "billitem_time": i.billitem_time,
         "billitem_day_name": i.billitem_day_name,
     }
- 
+
+
 def format_cart_item(item: BillItem):
-    """Format pending cart item - FIXED: Include cart_item_id"""
+    """Format pending cart item"""
     return {
-        "cart_item_id": item.billitem_id,  # CRITICAL: Map to frontend expected name
+        "cart_item_id": item.billitem_id,
         "billitem_id": item.billitem_id,
         "item_id": item.item_id,
         "item_name": item.item_name,
@@ -60,16 +59,41 @@ def format_cart_item(item: BillItem):
         "billitem_time": item.billitem_time,
         "billitem_day_name": item.billitem_day_name,
     }
-# =========================
-# ADD ITEM TO CART (NO BILL CREATED)
-# =========================
+
+
+async def get_total_committed_quantity(
+    db: AsyncSession, 
+    item_id: int, 
+    current_user: User, 
+    exclude_cart_item_id: int = None
+) -> float:
+    """Calculate total quantity committed in cart for an item"""
+    query = select(BillItem).where(
+        and_(
+            BillItem.user_id == current_user.user_id,
+            BillItem.is_pending == 1,
+            BillItem.bill_id.is_(None),
+            BillItem.item_id == item_id
+        )
+    )
+    
+    if exclude_cart_item_id:
+        query = query.where(BillItem.billitem_id != exclude_cart_item_id)
+    
+    result = await db.execute(query)
+    cart_items = result.scalars().all()
+    
+    total_base_quantity = sum(float(item.base_quantity) for item in cart_items)
+    return total_base_quantity
+
+
 async def add_to_cart(
     db: AsyncSession,
     data: dict,
     current_user: User,
     background_tasks: BackgroundTasks
 ):
-    """Add item to cart without creating a bill"""
+    """Add item to cart - CHECK stock but DON'T deduct yet"""
     
     # Check if item exists
     res = await db.execute(
@@ -90,6 +114,26 @@ async def add_to_cart(
     requested_quantity = float(data["quantity"])
     if requested_quantity <= 0:
         raise HTTPException(status_code=400, detail="⚠️ مقدار صفر یا منفی نہیں ہو سکتی")
+    
+    # Check if item already in cart with same unit
+    existing_result = await db.execute(
+        select(BillItem).where(
+            and_(
+                BillItem.user_id == current_user.user_id,
+                BillItem.is_pending == 1,
+                BillItem.bill_id.is_(None),
+                BillItem.item_id == item.item_id,
+                BillItem.requested_unit == requested_unit
+            )
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+    
+    if existing:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"⚠️ {item.item_name} ({requested_unit}) پہلے سے کارٹ میں موجود ہے"
+        )
     
     item_unit = str(item.item_unit).strip()
     
@@ -122,11 +166,15 @@ async def add_to_cart(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"❌ یونٹ تبدیل نہیں ہو سکتا: {str(e)}")
     
-    # Check stock
-    if base_quantity > float(item.stock_quantity):
+    # Check stock including other cart items
+    committed_quantity = await get_total_committed_quantity(db, item.item_id, current_user)
+    total_required = committed_quantity + base_quantity
+    
+    if total_required > float(item.stock_quantity):
+        available = float(item.stock_quantity) - committed_quantity
         raise HTTPException(
             status_code=400,
-            detail=f"⚠️ ذخیرہ ناکافی ہے! موجودہ اسٹاک: {item.stock_quantity} {item_unit}"
+            detail=f"⚠️ ذخیرہ ناکافی ہے! صرف {available:.2f} {item_unit} باقی ہیں"
         )
     
     # Calculate total
@@ -136,9 +184,9 @@ async def add_to_cart(
     now = datetime.now()
     urdu_cart = convert_datetime_to_urdu(now, prefix="billitem")
     
-    # Create cart item (NO bill_id - pending)
+    # Create cart item (NO stock deduction yet!)
     cart_item = BillItem(
-        bill_id=None,  # ✅ Important: No bill yet
+        bill_id=None,
         item_id=item.item_id,
         user_id=current_user.user_id,
         item_name=item.item_name,
@@ -164,9 +212,6 @@ async def add_to_cart(
     return format_cart_item(cart_item)
 
 
-# =========================
-# GET ALL PENDING CART ITEMS
-# =========================
 async def get_cart_items(db: AsyncSession, current_user: User):
     """Get all pending items in cart"""
     res = await db.execute(
@@ -182,11 +227,105 @@ async def get_cart_items(db: AsyncSession, current_user: User):
     return [format_cart_item(item) for item in items]
 
 
-# =========================
-# REMOVE ITEM FROM CART
-# =========================
+async def update_cart_item_quantity(
+    db: AsyncSession, 
+    cart_item_id: int, 
+    new_quantity: float,
+    requested_unit: str,
+    current_user: User
+):
+    """Update cart item quantity with proper stock validation"""
+    
+    # Get cart item
+    result = await db.execute(
+        select(BillItem).where(
+            and_(
+                BillItem.billitem_id == cart_item_id,
+                BillItem.user_id == current_user.user_id,
+                BillItem.is_pending == 1,
+                BillItem.bill_id.is_(None)
+            )
+        )
+    )
+    cart_item = result.scalar_one_or_none()
+    
+    if not cart_item:
+        raise HTTPException(status_code=404, detail="کارٹ آئٹم موجود نہیں ہے")
+    
+    # Get original item
+    res_item = await db.execute(
+        select(Item).where(Item.item_id == cart_item.item_id)
+    )
+    item = res_item.scalar_one_or_none()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
+    
+    # Calculate new base quantity
+    requested_quantity = new_quantity
+    requested_unit_str = requested_unit
+    
+    item_unit = str(item.item_unit).strip()
+    
+    # Unit conversion logic
+    normalized_item_unit, item_factor = converter.normalize_unit(item_unit, 1)
+    normalized_requested_unit, requested_factor = converter.normalize_unit(requested_unit_str, 1)
+    
+    quantity_in_normalized = requested_quantity * requested_factor
+    
+    if normalized_requested_unit == normalized_item_unit:
+        new_base_quantity = quantity_in_normalized / item_factor
+    else:
+        if not converter.is_compatible(normalized_requested_unit, normalized_item_unit):
+            raise HTTPException(
+                status_code=400,
+                detail=f"❌ '{requested_unit_str}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا"
+            )
+        
+        converted_value = converter.convert(
+            from_unit=normalized_requested_unit,
+            to_unit=normalized_item_unit,
+            value=quantity_in_normalized
+        )
+        new_base_quantity = converted_value / item_factor
+    
+    # Calculate change in quantity
+    quantity_change = new_base_quantity - cart_item.base_quantity
+    
+    # ONLY check stock if INCREASING quantity
+    if quantity_change > 0:
+        # Get committed quantity from other cart items (excluding current)
+        committed_quantity = await get_total_committed_quantity(
+            db, item.item_id, current_user, exclude_cart_item_id=cart_item_id
+        )
+        
+        # Total required after update = other committed + new quantity
+        total_required = committed_quantity + new_base_quantity
+        
+        if total_required > float(item.stock_quantity):
+            available = float(item.stock_quantity) - committed_quantity
+            raise HTTPException(
+                status_code=400,
+                detail=f"⚠️ ذخیرہ ناکافی ہے! صرف {available:.2f} {item_unit} باقی ہیں"
+            )
+    
+    # Update cart item (STILL no stock deduction)
+    cart_item.quantity = new_quantity
+    cart_item.requested_unit = requested_unit
+    cart_item.base_quantity = new_base_quantity
+    cart_item.total_amount = new_base_quantity * cart_item.unit_price
+    
+    await db.commit()
+    await db.refresh(cart_item)
+    
+    return {
+        "message": "کارٹ آئٹم اپڈیٹ ہو گیا", 
+        "cart_item": format_cart_item(cart_item)
+    }
+
+
 async def remove_from_cart(db: AsyncSession, cart_item_id: int, current_user: User):
-    """Remove item from cart (restore stock)"""
+    """Remove item from cart"""
     
     res = await db.execute(
         select(BillItem).where(
@@ -202,27 +341,14 @@ async def remove_from_cart(db: AsyncSession, cart_item_id: int, current_user: Us
     if not cart_item:
         raise HTTPException(status_code=404, detail="کارٹ میں آئٹم نہیں ملا")
     
-    # Restore stock
-    res_item = await db.execute(
-        select(Item).where(Item.item_id == cart_item.item_id)
-    )
-    item = res_item.scalar_one_or_none()
-    if item:
-        item.stock_quantity += cart_item.base_quantity
-        db.add(item)
-    
-    # Delete from cart
     await db.delete(cart_item)
     await db.commit()
     
     return {"message": "✅ آئٹم کارٹ سے حذف کر دیا گیا"}
 
 
-# =========================
-# CLEAR ALL CART ITEMS
-# =========================
 async def clear_cart(db: AsyncSession, current_user: User):
-    """Clear all pending items from cart (restore stock)"""
+    """Clear all cart items"""
     
     res = await db.execute(
         select(BillItem).where(
@@ -235,16 +361,7 @@ async def clear_cart(db: AsyncSession, current_user: User):
     )
     cart_items = res.scalars().all()
     
-    # Restore stock for all items
     for cart_item in cart_items:
-        res_item = await db.execute(
-            select(Item).where(Item.item_id == cart_item.item_id)
-        )
-        item = res_item.scalar_one_or_none()
-        if item:
-            item.stock_quantity += cart_item.base_quantity
-            db.add(item)
-        
         await db.delete(cart_item)
     
     await db.commit()
@@ -252,15 +369,12 @@ async def clear_cart(db: AsyncSession, current_user: User):
     return {"message": "✅ کارٹ خالی کر دیا گیا"}
 
 
-# =========================
-# GENERATE BILL FROM CART
-# =========================
 async def generate_bill_from_cart(
     db: AsyncSession,
     current_user: User,
     background_tasks: BackgroundTasks
 ):
-    """Generate a single bill from all pending cart items"""
+    """Generate bill and DEDUCT STOCK from inventory"""
     
     # Get all pending cart items
     res = await db.execute(
@@ -275,7 +389,30 @@ async def generate_bill_from_cart(
     cart_items = res.scalars().all()
     
     if not cart_items:
-        raise HTTPException(status_code=400, detail="❌ کارٹ خالی ہے - کوئی آئٹم بل کے لیے موجود نہیں")
+        raise HTTPException(status_code=400, detail="❌ کارٹ خالی ہے")
+    
+    # Final stock check and DEDUCTION
+    for cart_item in cart_items:
+        res_item = await db.execute(
+            select(Item).where(Item.item_id == cart_item.item_id)
+        )
+        item = res_item.scalar_one_or_none()
+        
+        if not item:
+            await db.rollback()
+            raise HTTPException(status_code=404, detail=f"آئٹم {cart_item.item_name} موجود نہیں ہے")
+        
+        # Check if enough stock
+        if cart_item.base_quantity > float(item.stock_quantity):
+            await db.rollback()
+            raise HTTPException(
+                status_code=400,
+                detail=f"⚠️ {cart_item.item_name}: صرف {item.stock_quantity} {item.item_unit} باقی ہیں"
+            )
+        
+        # DEDUCT STOCK HERE
+        item.stock_quantity -= cart_item.base_quantity
+        db.add(item)
     
     # Calculate total bill amount
     total_bill_amount = sum(float(item.total_amount) for item in cart_items)
@@ -286,7 +423,7 @@ async def generate_bill_from_cart(
     
     bill = Bill(
         customer_id=None,
-        customer_name="نقد",  # Fixed for cash sales
+        customer_name="نقد",
         user_id=current_user.user_id,
         effective_total=float(total_bill_amount),
         status="paid",
@@ -301,19 +438,18 @@ async def generate_bill_from_cart(
     db.add(bill)
     await db.flush()
     
-    # Update all cart items with bill_id and mark as not pending
+    # Update all cart items with bill_id
     for cart_item in cart_items:
         cart_item.bill_id = bill.bill_id
         cart_item.is_pending = 0
         
-        # Update stock (already deducted when added to cart, so no need to deduct again)
-        # But we need to check low stock alert
+        # Check low stock alert
         res_item = await db.execute(
             select(Item).where(Item.item_id == cart_item.item_id)
         )
         item = res_item.scalar_one_or_none()
         
-        if item and int(item.stock_quantity) <= 9:
+        if item and float(item.stock_quantity) <= 9:
             try:
                 subject = f"⚠️ کم اسٹاک الرٹ: {item.item_name}"
                 body = low_stock_template(
@@ -328,7 +464,7 @@ async def generate_bill_from_cart(
                     body
                 )
             except Exception as e:
-                print(f"⚠️ کم اسٹاک ای میل بھیجنے میں خرابی: {str(e)}")
+                print(f"⚠️ Email error: {str(e)}")
         
         # Add to history
         db.add(BillItemHistory(
@@ -362,7 +498,6 @@ async def generate_bill_from_cart(
     await db.commit()
     await db.refresh(bill)
     
-    # Return bill details with items
     return {
         "bill_id": bill.bill_id,
         "customer_name": bill.customer_name,
@@ -377,9 +512,7 @@ async def generate_bill_from_cart(
         "items": [format_cart_item(item) for item in cart_items]
     }
 
-# =========================
-# LIST
-# =========================
+
 async def list_bill_items(db: AsyncSession, current_user: User):
     res = await db.execute(
         select(BillItem).where(BillItem.user_id == current_user.user_id)
@@ -387,9 +520,6 @@ async def list_bill_items(db: AsyncSession, current_user: User):
     return [format_bill_item(i) for i in res.scalars().all()]
 
 
-# =========================
-# GET ONE
-# =========================
 async def get_bill_item_by_id(db: AsyncSession, billitem_id: int, current_user: User):
     res = await db.execute(
         select(BillItem).where(
@@ -398,18 +528,14 @@ async def get_bill_item_by_id(db: AsyncSession, billitem_id: int, current_user: 
         )
     )
     item = res.scalar_one_or_none()
-
+    
     if not item:
         raise HTTPException(status_code=404, detail="بل آئٹم نہیں ملا")
-
+    
     return format_bill_item(item)
 
 
-# =========================
-# DELETE
-# =========================
 async def delete_bill_item(db: AsyncSession, billitem_id: int, current_user: User):
-
     res = await db.execute(
         select(BillItem).where(
             BillItem.billitem_id == billitem_id,
@@ -417,31 +543,28 @@ async def delete_bill_item(db: AsyncSession, billitem_id: int, current_user: Use
         )
     )
     bill_item = res.scalar_one_or_none()
-
+    
     if not bill_item:
         raise HTTPException(status_code=404, detail="بل آئٹم نہیں ملا")
-
-    # restore stock ONLY if item exists
-    if bill_item.item_id:
+    
+    # Restore stock for billed items only
+    if bill_item.item_id and bill_item.bill_id is not None:
         res_item = await db.execute(
             select(Item).where(Item.item_id == bill_item.item_id)
         )
         item = res_item.scalar_one_or_none()
         if item:
-            item.stock_quantity += float(bill_item.quantity)
-
+            item.stock_quantity += bill_item.base_quantity
+            db.add(item)
+    
     await db.execute(
         delete(BillItem).where(BillItem.billitem_id == billitem_id)
     )
-
     await db.commit()
-
+    
     return {"message": "بل آئٹم حذف ہو گیا"}
 
 
-# =========================
-# SEARCH
-# =========================
 async def search_bill_items(db: AsyncSession, keyword: str, current_user: User):
     res = await db.execute(
         select(BillItem).where(
@@ -450,93 +573,33 @@ async def search_bill_items(db: AsyncSession, keyword: str, current_user: User):
         )
     )
     return [format_bill_item(i) for i in res.scalars().all()]
-async def update_cart_item_quantity(
-    db: AsyncSession, 
-    cart_item_id: int, 
-    new_quantity: float,
-    requested_unit: str,
-    current_user: User
-):
-    """Update cart item quantity"""
-    try:
-        # FIXED: Use billitem_id instead of id, and user_id instead of id
-        result = await db.execute(
-            select(BillItem).where(
-                BillItem.billitem_id == cart_item_id,  # FIXED: billitem_id
-                BillItem.user_id == current_user.user_id,  # FIXED: user_id
+
+
+async def get_cart_count(db: AsyncSession, current_user: User) -> int:
+    """Get number of items in cart"""
+    res = await db.execute(
+        select(BillItem).where(
+            and_(
+                BillItem.user_id == current_user.user_id,
+                BillItem.is_pending == 1,
                 BillItem.bill_id.is_(None)
             )
         )
-        cart_item = result.scalar_one_or_none()
-        
-        if not cart_item:
-            raise HTTPException(status_code=404, detail="کارٹ آئٹم موجود نہیں ہے")
-        
-        # Get original item to check stock
-        res_item = await db.execute(
-            select(Item).where(Item.item_id == cart_item.item_id)
+    )
+    items = res.scalars().all()
+    return len(items)
+
+
+async def get_cart_total(db: AsyncSession, current_user: User) -> float:
+    """Get total amount in cart"""
+    res = await db.execute(
+        select(BillItem).where(
+            and_(
+                BillItem.user_id == current_user.user_id,
+                BillItem.is_pending == 1,
+                BillItem.bill_id.is_(None)
+            )
         )
-        item = res_item.scalar_one_or_none()
-        
-        if not item:
-            raise HTTPException(status_code=404, detail="آئٹم موجود نہیں ہے")
-        
-        # Calculate new base quantity
-        requested_quantity = new_quantity
-        requested_unit_str = requested_unit
-        
-        item_unit = str(item.item_unit).strip()
-        
-        # Unit conversion logic
-        normalized_item_unit, item_factor = converter.normalize_unit(item_unit, 1)
-        normalized_requested_unit, requested_factor = converter.normalize_unit(requested_unit_str, 1)
-        
-        quantity_in_normalized = requested_quantity * requested_factor
-        
-        if normalized_requested_unit == normalized_item_unit:
-            new_base_quantity = quantity_in_normalized / item_factor
-        else:
-            if not converter.is_compatible(normalized_requested_unit, normalized_item_unit):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"❌ '{requested_unit_str}' کو '{item_unit}' میں تبدیل نہیں کیا جا سکتا"
-                )
-            
-            converted_value = converter.convert(
-                from_unit=normalized_requested_unit,
-                to_unit=normalized_item_unit,
-                value=quantity_in_normalized
-            )
-            new_base_quantity = converted_value / item_factor
-        
-        # Calculate stock difference
-        stock_difference = new_base_quantity - cart_item.base_quantity
-        
-        # Check if enough stock available
-        if stock_difference > 0 and stock_difference > float(item.stock_quantity):
-            raise HTTPException(
-                status_code=400,
-                detail=f"⚠️ ذخیرہ ناکافی ہے! موجودہ اسٹاک: {item.stock_quantity} {item_unit}"
-            )
-        
-        # Update stock
-        if stock_difference != 0:
-            item.stock_quantity -= stock_difference
-            db.add(item)
-        
-        # Update cart item
-        cart_item.quantity = new_quantity
-        cart_item.requested_unit = requested_unit
-        cart_item.base_quantity = new_base_quantity
-        cart_item.total_amount = new_base_quantity * cart_item.unit_price
-        
-        await db.commit()
-        await db.refresh(cart_item)
-        
-        return {"message": "کارٹ آئٹم اپڈیٹ ہو گیا", "cart_item": cart_item}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"اپڈیٹ کرنے میں خرابی: {str(e)}")
+    )
+    items = res.scalars().all()
+    return sum(float(item.total_amount) for item in items)

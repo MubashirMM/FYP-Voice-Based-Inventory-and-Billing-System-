@@ -15,7 +15,7 @@ from myapp.config import settings
 SMTP_EMAIL = settings.SMTP_EMAIL
 SMTP_PASSWORD = settings.SMTP_PASSWORD
 
-SYSTEM_NAME = "VBUGIMS - میرا اسٹور"
+SYSTEM_NAME = "VBUGIMS - 360 آسان اسٹور"
 
 # Multiple SMTP configurations for fallback
 SMTP_CONFIGS = [

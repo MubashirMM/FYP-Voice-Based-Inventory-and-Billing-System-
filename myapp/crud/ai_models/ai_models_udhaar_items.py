@@ -8,9 +8,9 @@ from myapp.models.user import User
 from myapp.utils.voice import match_voice
 
 # API Keys - 3 Groq keys for fallback
-GROQ_API_KEY1 = settings.GROQ_API_KEY1
-GROQ_API_KEY2 = settings.GROQ_API_KEY2
-GROQ_API_KEY3 = settings.GROQ_API_KEY3
+GROQ_API_KEY1 = settings.GROQ_API_KEY7
+GROQ_API_KEY2 = settings.GROQ_API_KEY8
+GROQ_API_KEY3 = settings.GROQ_API_KEY9
 
 # List of API keys for rotation
 GROQ_API_KEYS = [GROQ_API_KEY1, GROQ_API_KEY2, GROQ_API_KEY3]

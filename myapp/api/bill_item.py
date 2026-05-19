@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 from myapp.database.session import get_db
 from myapp.schemas.bill_item import BillItemCreate, BillItemRead
-from myapp.crud.bill_item import (
+from myapp.crud.bill_item import (  # ← UPDATED: Make sure this matches your filename
     list_bill_items,
     get_bill_item_by_id,
     delete_bill_item,
@@ -13,7 +13,8 @@ from myapp.crud.bill_item import (
     get_cart_items,
     remove_from_cart,
     clear_cart,
-    generate_bill_from_cart
+    generate_bill_from_cart,
+    update_cart_item_quantity  # ← ADD THIS IMPORT
 )
 from myapp.models.user import User
 from myapp.utils.security import get_current_user
@@ -36,10 +37,16 @@ async def update_cart_item(
     current_user: User = Depends(get_current_user)
 ):
     """Update cart item quantity"""
-    from myapp.crud.bill_item import update_cart_item_quantity
-    return await update_cart_item_quantity(db, cart_item_id, item_update.quantity, item_update.requested_unit, current_user)
+    # No need to import here since we imported above
+    return await update_cart_item_quantity(
+        db, 
+        cart_item_id, 
+        item_update.quantity, 
+        item_update.requested_unit, 
+        current_user
+    )
 
-@router.post("/add", response_model=BillItemRead)
+@router.post("/add")
 async def add_item_to_cart(
     item_name: str,
     quantity: float,
@@ -89,6 +96,30 @@ async def generate_bill(
 ):
     """Generate bill from all cart items"""
     return await generate_bill_from_cart(db, current_user, background_tasks)
+
+# =========================
+# GET CART COUNT & TOTAL (Optional but useful)
+# =========================
+
+@router.get("/count")
+async def get_cart_count(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get number of items in cart"""
+    from myapp.crud.bill_item_cart import get_cart_count
+    count = await get_cart_count(db, current_user)
+    return {"count": count}
+
+@router.get("/total")
+async def get_cart_total(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get total amount in cart"""
+    from myapp.crud.bill_item_cart import get_cart_total
+    total = await get_cart_total(db, current_user)
+    return {"total": total}
 
 # =========================
 # BILL ITEM OPERATIONS (GENERIC ROUTES LAST)
