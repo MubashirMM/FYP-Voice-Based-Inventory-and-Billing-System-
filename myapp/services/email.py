@@ -10,71 +10,100 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Replace lines 15-17 in email_async.py
 from myapp.config import settings
 
 SMTP_EMAIL = settings.SMTP_EMAIL
 SMTP_PASSWORD = settings.SMTP_PASSWORD
 
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 465
-
 SYSTEM_NAME = "VBUGIMS - میرا اسٹور"
 
-# Connection pool for SMTP
+# Multiple SMTP configurations for fallback
+SMTP_CONFIGS = [
+    {"server": "smtp.gmail.com", "port": 465, "use_tls": True, "start_tls": False},  # SSL
+    {"server": "smtp.gmail.com", "port": 587, "use_tls": False, "start_tls": True},  # TLS
+    {"server": "smtp.gmail.com", "port": 25, "use_tls": False, "start_tls": False},  # Unencrypted (fallback)
+]
+
 _smtp_connection: Optional[aiosmtplib.SMTP] = None
 _connection_lock = asyncio.Lock()
+_current_config_index = 0
 
 async def get_smtp_connection():
-    """Get or create SMTP connection (reused across requests)"""
-    global _smtp_connection
+    """Get or create SMTP connection with fallback configurations"""
+    global _smtp_connection, _current_config_index
     
     async with _connection_lock:
         if _smtp_connection is None or not _smtp_connection.is_connected:
-            _smtp_connection = aiosmtplib.SMTP(
-                hostname=SMTP_SERVER,
-                port=SMTP_PORT,
-                use_tls=True,
-                timeout=10
-            )
-            await _smtp_connection.connect()
-            await _smtp_connection.login(SMTP_EMAIL, SMTP_PASSWORD)
-            logger.info("SMTP connection established")
+            # Try each configuration
+            for i, config in enumerate(SMTP_CONFIGS):
+                try:
+                    logger.info(f"Attempting SMTP connection with config {i+1}: {config['server']}:{config['port']}")
+                    
+                    smtp = aiosmtplib.SMTP(
+                        hostname=config["server"],
+                        port=config["port"],
+                        use_tls=config["use_tls"],
+                        timeout=10
+                    )
+                    await smtp.connect()
+                    
+                    if config["start_tls"]:
+                        await smtp.starttls()
+                    
+                    await smtp.login(SMTP_EMAIL, SMTP_PASSWORD)
+                    
+                    _smtp_connection = smtp
+                    _current_config_index = i
+                    logger.info(f"✅ SMTP connected with config {i+1}")
+                    return _smtp_connection
+                    
+                except Exception as e:
+                    logger.warning(f"Config {i+1} failed: {str(e)}")
+                    continue
+            
+            raise Exception("All SMTP configurations failed")
     
     return _smtp_connection
 
 async def send_email_async(to: str, subject: str, body: str):
-    """Async version - non-blocking email sending"""
-    try:
-        smtp = await get_smtp_connection()
-        
-        msg = MIMEMultipart()
-        msg["From"] = formataddr((SYSTEM_NAME, SMTP_EMAIL))
-        msg["To"] = to
-        msg["Subject"] = subject
-        msg.attach(MIMEText(body, "html", "utf-8"))
-        
-        await smtp.send_message(msg)
-        logger.info(f"✅ Email sent to {to}")
-        
-    except Exception as e:
-        logger.error(f"❌ Email error to {to}: {str(e)}")
-        # Don't raise - email failure shouldn't break the API
+    """Async version - non-blocking email sending with retry"""
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            smtp = await get_smtp_connection()
+            
+            msg = MIMEMultipart()
+            msg["From"] = formataddr((SYSTEM_NAME, SMTP_EMAIL))
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.attach(MIMEText(body, "html", "utf-8"))
+            
+            await smtp.send_message(msg)
+            logger.info(f"✅ Email sent to {to} - Subject: {subject}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Email error to {to} (attempt {attempt+1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2)  # Wait before retry
+                # Force reconnect on next attempt
+                global _smtp_connection
+                _smtp_connection = None
+            else:
+                logger.error(f"❌ Failed to send email to {to} after {max_retries} attempts")
+                return False
 
-# Keep sync version for backward compatibility (but make it non-blocking)
+# Keep sync version for backward compatibility
 def send_email(to: str, subject: str, body: str):
     """Sync wrapper - schedules async email sending without blocking"""
     try:
-        # Try to get running event loop
         loop = asyncio.get_running_loop()
-        # Already in async context - create task
         asyncio.create_task(send_email_async(to, subject, body))
     except RuntimeError:
-        # No running loop - create new loop (for scripts)
         asyncio.run(send_email_async(to, subject, body))
 
 # ======================
-# TEMPLATES (Keep as is)
+# TEMPLATES
 # ======================
 def base_template(title: str, message: str, extra: str = ""):
     return f"""
@@ -138,13 +167,16 @@ def password_reset_template(code: str):
                     padding:10px; border-radius:5px; display:inline-block;">
             {code}
         </div>
+        <p style="margin-top:15px; color:#e74c3c;">
+            ⚠️ یہ کوڈ 15 منٹ کے لیے درست ہوگا۔
+        </p>
         """
     )
 
 def password_changed_template(username: str):
     return base_template(
         "🔒 پاس ورڈ تبدیل ہو گیا",
-        f"{username}، آپ کا پاس ورڈ کامیابی سے تبدیل ہو گیا ہے۔"
+        f"{username}، آپ کا پاس ورڈ کامیابی سے تبدیل ہو گیا ہے۔ اگر آپ نے یہ تبدیلی نہیں کی تو براہ کرم فوری طور پر ہم سے رابطہ کریں۔"
     )
 
 def account_deleted_template(username: str):

@@ -18,15 +18,28 @@ from myapp.api.report import router as report
 from myapp.api.forcasting import router as forcast
 from myapp.api.bill_item import router as bill_item
 from myapp.api.bill_item_history import router as bill_item_history
-
-
+from myapp.crud.user import preload_voice_model
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # STARTUP - Everything here runs before the app starts
+    print("🔄 Starting up...")
+    
+    # Create database tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield
+    
+    # Preload voice model (moved before yield)
+    await preload_voice_model()
+    
+    print("✅ Startup complete!")
+    
+    yield  # The app runs here
+    
+    # SHUTDOWN - Everything here runs when the app is shutting down
+    print("🔄 Shutting down...")
     await engine.dispose()
+    print("✅ Shutdown complete!")
 
 # Create app
 app = FastAPI(lifespan=lifespan)

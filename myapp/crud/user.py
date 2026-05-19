@@ -282,9 +282,8 @@
     
 #     await db.commit()
 #     return deleted_count
-
-
 import random
+import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, func, update, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -300,15 +299,29 @@ from myapp.services.email import (
     voice_samples_template, voice_login_template, profile_update_template,
     password_reset_template, password_changed_template, account_deleted_template
 )
+from myapp.utils.voice import combine_embeddings, match_voice, preload_encoder
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 _cpu_executor = ThreadPoolExecutor(max_workers=8)
+_voice_executor = ThreadPoolExecutor(max_workers=4)
 
 async def run_cpu_bound(func, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(_cpu_executor, lambda: func(*args, **kwargs))
 
+async def run_voice_bound(func, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_voice_executor, lambda: func(*args, **kwargs))
+
+# User cache
 _user_cache = {}
 _CACHE_TTL = 60
+
+# Voice embedding cache
+_voice_embedding_cache = {}
+_EMBEDDING_CACHE_TTL = 300
 
 def _get_cached_user(email: str):
     key = email.strip().lower()
@@ -327,7 +340,24 @@ def _invalidate_cache(email: str):
     key = email.strip().lower()
     _user_cache.pop(key, None)
 
-async def register_user(db: AsyncSession, email: str, username: str, password: str, background_tasks: BackgroundTasks = None):
+def _cache_voice_embedding(email: str, embedding):
+    key = email.strip().lower()
+    _voice_embedding_cache[key] = (embedding, datetime.now(timezone.utc))
+
+def _get_cached_voice_embedding(email: str):
+    key = email.strip().lower()
+    if key in _voice_embedding_cache:
+        emb, timestamp = _voice_embedding_cache[key]
+        if (datetime.now(timezone.utc) - timestamp).seconds < _EMBEDDING_CACHE_TTL:
+            return emb
+        del _voice_embedding_cache[key]
+    return None
+
+def _invalidate_voice_cache(email: str):
+    key = email.strip().lower()
+    _voice_embedding_cache.pop(key, None)
+
+async def register_user(db: AsyncSession, email: str, username: str, password: str, background_tasks: BackgroundTasks):
     normalized_email = email.strip().lower()
     
     query = text("SELECT 1 FROM users WHERE LOWER(email) = :email LIMIT 1")
@@ -363,12 +393,13 @@ async def register_user(db: AsyncSession, email: str, username: str, password: s
     await db.commit()
     _cache_user(normalized_email, user)
     
-    if background_tasks:
-        background_tasks.add_task(send_email_async, normalized_email, "خوش آمدید", registration_template(username))
+    # Send welcome email
+    background_tasks.add_task(send_email_async, normalized_email, "خوش آمدید", registration_template(username))
+    logger.info(f"Welcome email queued for {normalized_email}")
     
     return user
 
-async def authenticate_user(db: AsyncSession, email: str, password: str, background_tasks: BackgroundTasks = None):
+async def authenticate_user(db: AsyncSession, email: str, password: str, background_tasks: BackgroundTasks):
     normalized_email = email.strip().lower()
     
     user = _get_cached_user(normalized_email)
@@ -386,16 +417,15 @@ async def authenticate_user(db: AsyncSession, email: str, password: str, backgro
     if not is_valid:
         raise HTTPException(401, "پاس ورڈ غلط ہے۔")
     
-    if background_tasks:
-        background_tasks.add_task(send_email_async, user.email, "لاگ ان", login_template(user.username))
+    # Send login notification
+    background_tasks.add_task(send_email_async, user.email, "لاگ ان", login_template(user.username))
+    logger.info(f"Login notification queued for {user.email}")
     
     return create_access_token({"sub": str(user.user_id)})
-# myapp/crud/user.py - Fixed update_own_profile function
 
-async def update_own_profile(db: AsyncSession, user_id: int, update_data: ProfileUpdate, background_tasks: BackgroundTasks = None):
+async def update_own_profile(db: AsyncSession, user_id: int, update_data: ProfileUpdate, background_tasks: BackgroundTasks):
     data = update_data.model_dump(exclude_unset=True)
     
-    # Remove confirm_password if present
     data.pop("confirm_password", None)
     
     if not data:
@@ -429,7 +459,6 @@ async def update_own_profile(db: AsyncSession, user_id: int, update_data: Profil
     
     update_values["user_id"] = user_id
     
-    # Remove updated_at - not in your table
     update_query = text(f"""
         UPDATE users 
         SET {', '.join(update_fields)}
@@ -444,12 +473,13 @@ async def update_own_profile(db: AsyncSession, user_id: int, update_data: Profil
     if email_changed and new_email:
         _invalidate_cache(new_email)
     
-    if background_tasks and user:
-        background_tasks.add_task(send_email_async, user.email, "پروفائل اپڈیٹ", profile_update_template(user.username, user.email))
+    # Send profile update notification
+    background_tasks.add_task(send_email_async, user.email, "پروفائل اپڈیٹ", profile_update_template(user.username, user.email))
+    logger.info(f"Profile update notification queued for {user.email}")
     
     return user
-async def delete_user(db: AsyncSession, user_id: int, background_tasks: BackgroundTasks = None):
-    # Get user with ORM (not raw SQL)
+
+async def delete_user(db: AsyncSession, user_id: int, background_tasks: BackgroundTasks):
     user = await db.get(User, user_id)
     
     if not user:
@@ -458,16 +488,18 @@ async def delete_user(db: AsyncSession, user_id: int, background_tasks: Backgrou
     email = user.email
     username = user.username
     
-    # Use ORM delete - this will trigger CASCADE
     await db.delete(user)
     await db.commit()
     
     _invalidate_cache(email)
+    _invalidate_voice_cache(email)
     
-    if background_tasks:
-        background_tasks.add_task(send_email_async, email, "اکاؤنٹ ڈیلیٹ", account_deleted_template(username))
+    # Send account deletion notification
+    background_tasks.add_task(send_email_async, email, "اکاؤنٹ ڈیلیٹ", account_deleted_template(username))
+    logger.info(f"Account deletion notification queued for {email}")
     
     return True
+
 async def get_all_users(db: AsyncSession):
     result = await db.execute(select(User))
     return result.scalars().all()
@@ -481,31 +513,41 @@ async def get_user_by_email(db: AsyncSession, email: str):
     result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     return result.scalar_one_or_none()
 
-async def save_voice_samples(db: AsyncSession, email: str, samples: list[str], background_tasks: BackgroundTasks = None):
-    from myapp.utils.voice import combine_embeddings
-    
+async def save_voice_samples(db: AsyncSession, email: str, samples: list[str], background_tasks: BackgroundTasks):
     normalized_email = email.strip().lower()
-    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
-    user = result.scalar_one_or_none()
+    
+    user = _get_cached_user(normalized_email)
+    if not user:
+        result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+        user = result.scalar_one_or_none()
+        if user:
+            _cache_user(normalized_email, user)
     
     if not user:
         return None
     
-    voice_embedding = await run_cpu_bound(combine_embeddings, samples)
+    voice_embedding = await combine_embeddings(samples)
+    
     user.voice_embedding = voice_embedding
     await db.commit()
     
-    if background_tasks:
-        background_tasks.add_task(send_email_async, user.email, "وائس محفوظ", voice_samples_template(user.username))
+    _cache_voice_embedding(normalized_email, voice_embedding)
+    
+    # Send voice saved notification
+    background_tasks.add_task(send_email_async, user.email, "وائس محفوظ", voice_samples_template(user.username))
+    logger.info(f"Voice saved notification queued for {user.email}")
     
     return user
 
-async def authenticate_voice(db: AsyncSession, email: str, audio_base64: str, background_tasks: BackgroundTasks = None):
-    from myapp.utils.voice import match_voice
-    
+async def authenticate_voice(db: AsyncSession, email: str, audio_base64: str, background_tasks: BackgroundTasks):
     normalized_email = email.strip().lower()
-    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
-    user = result.scalar_one_or_none()
+    
+    user = _get_cached_user(normalized_email)
+    if not user:
+        result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
+        user = result.scalar_one_or_none()
+        if user:
+            _cache_user(normalized_email, user)
     
     if not user:
         raise HTTPException(404, detail="ای میل رجسٹرڈ نہیں ہے۔")
@@ -513,53 +555,79 @@ async def authenticate_voice(db: AsyncSession, email: str, audio_base64: str, ba
     if not user.voice_embedding:
         raise HTTPException(400, detail="آپ کی آواز رجسٹرڈ نہیں ہے۔ براہ کرم پہلے وائس رجسٹر کریں۔")
     
-    # Get match result and similarity score
-    is_match, similarity = await run_cpu_bound(match_voice, user.voice_embedding, audio_base64)
+    cached_embedding = _get_cached_voice_embedding(normalized_email)
+    stored_embedding = cached_embedding if cached_embedding is not None else user.voice_embedding
+    
+    is_match, similarity = await match_voice(stored_embedding, audio_base64)
+    
+    if cached_embedding is None and is_match:
+        _cache_voice_embedding(normalized_email, stored_embedding)
     
     if is_match:
-        if background_tasks:
-            background_tasks.add_task(send_email_async, user.email, "وائس لاگ ان", voice_login_template(user.username))
+        # Send voice login notification
+        background_tasks.add_task(send_email_async, user.email, "وائس لاگ ان", voice_login_template(user.username))
+        logger.info(f"Voice login notification queued for {user.email}")
         return user
     
-    # Calculate required improvement
-    required_improvement = (0.7 - similarity) * 100
     raise HTTPException(
-    status_code=401, 
-    detail=f"آواز کی مطابقت درست نہیں پائی گئی۔ مماثلت {similarity*100:.1f} فیصد ہے، جبکہ کم از کم 70 فیصد ہونا ضروری ہے۔ براہ کرم دوبارہ کوشش کریں۔"
-)
-async def initiate_password_reset(db: AsyncSession, email: str, background_tasks: BackgroundTasks = None):
+        status_code=401, 
+        detail=f"آواز کی مطابقت درست نہیں پائی گئی۔ مماثلت {similarity*100:.1f} فیصد ہے، جبکہ کم از کم 70 فیصد ہونا ضروری ہے۔ براہ کرم دوبارہ کوشش کریں۔"
+    )
+
+async def initiate_password_reset(db: AsyncSession, email: str, background_tasks: BackgroundTasks):
+    """Initiate password reset - Sends reset code to email"""
     normalized_email = email.strip().lower()
+    logger.info(f"Password reset requested for email: {normalized_email}")
+    
     result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     user = result.scalar_one_or_none()
     
     if not user:
+        logger.warning(f"Password reset requested for non-existent email: {normalized_email}")
         return None
     
+    # Generate reset code
     code = f"VBUGIMS-{random.randint(100000, 999999)}"
     user.password_reset_code = code
     user.password_reset_expiry = datetime.now(timezone.utc) + timedelta(minutes=15)
     await db.commit()
     
-    if background_tasks:
+    logger.info(f"Reset code generated for {user.email}: {code}")
+    
+    # Send password reset email
+    try:
         background_tasks.add_task(send_email_async, user.email, "پاس ورڈ ری سیٹ", password_reset_template(code))
-    
-    return code
+        logger.info(f"Password reset email queued for {user.email}")
+        return code
+    except Exception as e:
+        logger.error(f"Failed to queue password reset email for {user.email}: {str(e)}")
+        # Still return the code, but log the error
+        return code
 
-async def reset_password_in_db(db: AsyncSession, email: str, reset_code: str, new_password: str, background_tasks: BackgroundTasks = None):
+async def reset_password_in_db(db: AsyncSession, email: str, reset_code: str, new_password: str, background_tasks: BackgroundTasks):
+    """Reset password with validation"""
     normalized_email = email.strip().lower()
+    logger.info(f"Password reset attempt for email: {normalized_email}")
     
-    result = await db.execute(
-        select(User).where(
-            func.lower(User.email) == normalized_email,
-            User.password_reset_code == reset_code,
-            User.password_reset_expiry > datetime.now(timezone.utc)
-        )
-    )
+    # First check if user exists
+    result = await db.execute(select(User).where(func.lower(User.email) == normalized_email))
     user = result.scalar_one_or_none()
     
     if not user:
+        logger.warning(f"Password reset failed - user not found: {normalized_email}")
         return False
     
+    # Check if reset code matches
+    if user.password_reset_code != reset_code:
+        logger.warning(f"Password reset failed - invalid code for {normalized_email}. Expected: {user.password_reset_code}, Got: {reset_code}")
+        return False
+    
+    # Check if code is expired
+    if datetime.now(timezone.utc) > user.password_reset_expiry:
+        logger.warning(f"Password reset failed - expired code for {normalized_email}. Expiry: {user.password_reset_expiry}")
+        return False
+    
+    # Reset password
     hashed_password = await run_cpu_bound(hash_password, new_password)
     
     await db.execute(
@@ -573,9 +641,20 @@ async def reset_password_in_db(db: AsyncSession, email: str, reset_code: str, ne
     )
     await db.commit()
     
-    _invalidate_cache(normalized_email)
+    logger.info(f"Password reset successful for {user.email}")
     
-    if background_tasks:
-        background_tasks.add_task(send_email_async, user.email, "پاس ورڈ تبدیل", password_changed_template(user.username))
+    _invalidate_cache(normalized_email)
+    _invalidate_voice_cache(normalized_email)
+    
+    # Send password changed notification
+    background_tasks.add_task(send_email_async, user.email, "پاس ورڈ تبدیل", password_changed_template(user.username))
+    logger.info(f"Password changed notification queued for {user.email}")
     
     return True
+
+async def preload_voice_model():
+    """Preload voice encoder model on startup"""
+    print("🔄 Preloading voice encoder model...")
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, preload_encoder)
+    print("✅ Voice encoder preloaded successfully!")
