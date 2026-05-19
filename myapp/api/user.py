@@ -186,6 +186,8 @@
 #         )
     
 #     return formatted_users
+
+
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
 from typing import List, Annotated
 from datetime import datetime, timezone
@@ -235,6 +237,8 @@ async def login(
     token = await authenticate_user(db, form_data.username, form_data.password, background_tasks)
     return {"access_token": token, "token_type": "bearer"}
 
+# In your auth router file - replace the forgot-password endpoint
+
 @router.post("/forgot-password")
 async def forgot_password(
     email: str,
@@ -244,15 +248,27 @@ async def forgot_password(
     """Request password reset - sends code to email"""
     logger.info(f"Forgot password request for email: {email}")
     
+    # Check if email exists
+    user = await get_user_by_email(db, email)
+    
+    if not user:
+        # Return specific error for non-existent email
+        raise HTTPException(
+            status_code=404, 
+            detail="❌ یہ ای میل رجسٹرڈ نہیں ہے۔ براہ کرم پہلے رجسٹر کریں۔"
+        )
+    
+    # Email exists - send reset code
     code = await initiate_password_reset(db, email, background_tasks)
     
-    if not code:
-        # Security: Don't reveal if email exists
-        logger.warning(f"Password reset requested for non-existent email: {email}")
-        return {"پیغام": "اگر ای میل رجسٹرڈ ہے تو ری سیٹ کوڈ بھیج دیا گیا ہے"}
+    if code:
+        return {"پیغام": "✅ ری سیٹ کوڈ آپ کی ای میل پر بھیج دیا گیا ہے"}
+    else:
+        raise HTTPException(
+            status_code=500,
+            detail="⚠️ کوڈ بھیجنے میں خرابی۔ براہ کرم دوبارہ کوشش کریں۔"
+        ) 
     
-    return {"پیغام": "ری سیٹ کوڈ آپ کی ای میل پر بھیج دیا گیا ہے"}
-
 @router.post("/reset-password-confirm")
 async def reset_password_confirm(
     payload: PasswordResetConfirm,

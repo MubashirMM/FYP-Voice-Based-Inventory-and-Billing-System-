@@ -15,7 +15,7 @@ from myapp.models.bill_item_history import BillItemHistory
 from myapp.models.user import User
 from myapp.utils.units import UnitConverter
 from myapp.utils.urdu_date import convert_datetime_to_urdu
-from myapp.services.email import low_stock_template, send_email
+from myapp.services.email import low_stock_template, send_email_async
 
 converter = UnitConverter()
 
@@ -322,7 +322,7 @@ async def generate_bill_from_cart(
                     unit=item.item_unit
                 )
                 background_tasks.add_task(
-                    send_email,
+                    send_email_async,
                     current_user.email,
                     subject,
                     body

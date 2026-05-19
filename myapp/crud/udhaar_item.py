@@ -17,7 +17,7 @@ from myapp.models.sales import Sale
 from myapp.utils.urdu_date import convert_datetime_to_urdu
 from myapp.utils.units import UnitConverter
 from myapp.crud.udhar import update_udhar_summary
-from myapp.services.email import low_stock_template, send_email
+from myapp.services.email import low_stock_template, send_email_async
 
 # =========================
 # GLOBAL
@@ -182,7 +182,8 @@ async def create_udhar(
     item.stock_quantity -= base_quantity
 
     # ================= LOW STOCK ALERT =================
-    if int(item.stock_quantity) <= 9:
+    # ================= LOW STOCK ALERT WITH RETRY =================
+    if float(item.stock_quantity) <= 9:
         try:
             subject = f"⚠️ کم اسٹاک الرٹ: {item.item_name}"
             body = low_stock_template(
@@ -190,16 +191,17 @@ async def create_udhar(
                 stock=item.stock_quantity,
                 unit=item.item_unit
             )
+            # Use background tasks for async email
             background_tasks.add_task(
-                send_email,
+                send_email_async,  # Changed from send_email
                 current_user.email,
                 subject,
                 body
             )
+            print(f"✅ کم اسٹاک ای میل بھیجنے کے لیے قطار میں لگا دیا گیا: {item.item_name}")
         except Exception as e:
-            print(f"⚠️ کم اسٹاک ای میل بھیجنے میں خرابی: {str(e)}")
-
-    # ================= GET OR CREATE UDHAR RECORD =================
+            print(f"⚠️ کم اسٹاک ای میل قطار میں لگانے میں خرابی: {str(e)}")
+        # ================= GET OR CREATE UDHAR RECORD =================
     res = await db.execute(
         select(Udhar).where(
             Udhar.customer_id == customer.customer_id,
