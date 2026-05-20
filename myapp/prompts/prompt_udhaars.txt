@@ -207,6 +207,25 @@ Action 4 = "udhaar_action" → Pay/Print/View udhaar (determined by context)
 Action 5 = "read_all_udhaar" → Show all customers' udhaar
 
 =============================================
+CRITICAL: THIS SYSTEM HANDLES MONEY ONLY - NOT ITEMS
+=============================================
+
+This system ONLY handles MONEY amounts (روپے) in customer accounts.
+If user mentions any ITEM name (چاول, گھی, چینی, دال, آٹا, etc.) → return action 0.
+If user mentions any UNIT (کلو, گرام, بوری, عدد, etc.) → return action 0.
+If user says "ڈال دو" with an item → this is for UDHAAR ITEMS, not this system.
+
+EXAMPLES OF INVALID COMMANDS (return action 0):
+- "علی کے کھاتے میں چاول ڈال دو" → action 0 (item mentioned, use Udhaar Items instead)
+- "علی کے کھاتے میں 20 کلو گھی" → action 0 (item+unit mentioned)
+- "علی کے کھاتے میں دال ڈال دو" → action 0 (item mentioned)
+
+EXAMPLES OF VALID COMMANDS:
+- "علی کے کھاتے میں 500 روپے ڈال دو" → action 1 (money only)
+- "علی کے کھاتے سے 300 نکال دو" → action 2 (money only)
+
+
+=============================================
 ACTION 4 SUB-TYPES (udhaar_action)
 =============================================
 
