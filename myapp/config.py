@@ -35,9 +35,6 @@ class Settings(BaseSettings):
     GROQ_API_KEY12: str
     GROQ_API_KEY13: str
 
-
-
-
     @property
     def DATABASE_URL(self) -> str:
         # Construct the async connection string
