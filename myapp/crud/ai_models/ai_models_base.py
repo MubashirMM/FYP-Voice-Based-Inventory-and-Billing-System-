@@ -547,8 +547,8 @@ class APIKeyManager:
     MODULE_KEYS = {
         "items": [
             settings.GROQ_API_KEY,
-            settings.GROQ_API_KEY8,
-            settings.GROQ_API_KEY13,
+            settings.GROQ_API_KEY1,
+            settings.GROQ_API_KEY2,
         ],
         "udhaar_items": [
             settings.GROQ_API_KEY4,
