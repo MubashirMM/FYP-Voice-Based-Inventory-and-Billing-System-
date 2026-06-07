@@ -313,8 +313,10 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
     customer = customer_res.scalar_one_or_none()
     customer_name = customer.customer_name if customer else "نامعلوم"
 
-    # Get the old quantity to restore stock
-    old_quantity = float(udhar_item.quantity)
+    # ================= FIXED: PROPER STOCK RESTORATION WITH CONVERSION =================
+    # Get the old quantity and unit from the udhar item
+    old_quantity_requested = float(udhar_item.quantity)  # This is in requested_unit
+    old_requested_unit = udhar_item.requested_unit
     old_item_id = udhar_item.item_id
     
     # Get the old item to restore stock
@@ -324,9 +326,34 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
         )
         old_item = old_item_res.scalar_one_or_none()
         if old_item:
-            # Restore old stock
-            old_item.stock_quantity += old_quantity
+            # Convert old quantity from requested_unit to base_unit (old_item.item_unit)
+            old_item_base_unit = old_item.item_unit.strip()
+            
+            # Check if conversion is needed
+            if old_requested_unit == old_item_base_unit:
+                # Same unit, no conversion needed
+                old_quantity_base = old_quantity_requested
+            else:
+                # Check compatibility before conversion
+                if not converter.is_compatible(old_requested_unit, old_item_base_unit):
+                    # If not compatible, we can't restore properly - log error but continue?
+                    # Better to raise an exception to avoid data corruption
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"پرانی اکائی '{old_requested_unit}' کو بیس اکائی '{old_item_base_unit}' میں تبدیل نہیں کیا جا سکتا"
+                    )
+                
+                # Convert from requested_unit to base_unit
+                old_quantity_base = converter.convert(
+                    from_unit=old_requested_unit,
+                    to_unit=old_item_base_unit,
+                    value=old_quantity_requested
+                )
+            
+            # Restore the converted quantity to stock
+            old_item.stock_quantity += old_quantity_base
             db.add(old_item)
+            print(f"✅ اسٹاک بحال: {old_quantity_base} {old_item_base_unit} (اصل: {old_quantity_requested} {old_requested_unit})")
     
     # Get the new item
     db_item = await get_item_by_name(db, data.item_name, current_user)
@@ -334,7 +361,7 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
     requested_unit = data.unit.strip()
     item_unit = db_item.item_unit.strip()
 
-    # Calculate new quantity
+    # Calculate new quantity for deduction
     if requested_unit == item_unit:
         base_quantity = float(data.quantity)
     else:
@@ -350,7 +377,7 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
             value=float(data.quantity)
         )
 
-    # Check stock for new item
+    # Check stock for new item (after restoration of old stock)
     if base_quantity > float(db_item.stock_quantity):
         raise HTTPException(
             status_code=400,
@@ -365,7 +392,7 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
     udhar_item.item_id = db_item.item_id
     udhar_item.item_name = db_item.item_name
     udhar_item.base_unit = db_item.item_unit
-    udhar_item.quantity = Decimal(str(base_quantity))
+    udhar_item.quantity = Decimal(str(float(data.quantity)))  # Store as requested quantity
     udhar_item.requested_unit = requested_unit
     udhar_item.unit_price = db_item.unit_price
     udhar_item.total_amount = Decimal(str(base_quantity)) * Decimal(str(db_item.unit_price))
@@ -433,8 +460,7 @@ async def update_udharitem(db: AsyncSession, item_id: int, data, current_user: U
     )
     fresh_item = fresh_res.scalar_one()
     
-    return format_item(fresh_item)
-
+    return format_item(fresh_item) 
 # =========================
 # DELETE
 # =========================
