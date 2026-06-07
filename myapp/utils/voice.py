@@ -1,57 +1,4 @@
 
-# import base64
-# import io
-# import numpy as np
-# import soundfile as sf
-# from resemblyzer import VoiceEncoder, preprocess_wav
-
-# # Model being used: Resemblyzer VoiceEncoder
-# # This is a pre-trained deep learning model for speaker verification
-# # It creates 256-dimensional voice embeddings from audio samples
-
-# encoder = VoiceEncoder()
-
-# def audio_to_embedding(audio_b64: str) -> np.ndarray:
-#     """Convert base64 audio to voice embedding"""
-#     audio_bytes = base64.b64decode(audio_b64)
-#     audio_file = io.BytesIO(audio_bytes)
-#     wav, sampling_rate = sf.read(audio_file)
-
-#     if wav.size == 0:
-#         raise ValueError("Audio file is empty or unreadable")
-
-#     if len(wav.shape) > 1:
-#         wav = np.mean(wav, axis=1)
-
-#     wav = preprocess_wav(wav, source_sr=sampling_rate).astype(np.float32)
-#     emb = encoder.embed_utterance(wav)
-#     return emb
-
-# def combine_embeddings(samples: list[str]) -> bytes:
-#     """Average multiple voice embeddings and store as bytes"""
-#     embs = [audio_to_embedding(s) for s in samples]
-#     avg_emb = np.mean(embs, axis=0)
-#     return avg_emb.astype(np.float32).tobytes()
-
-# def match_voice(stored_bytes: bytes, new_sample_b64: str, threshold: float = 0.7) -> tuple[bool, float]:
-#     """
-#     Match voice with 70% threshold requirement
-#     Returns: (is_match, similarity_score)
-#     """
-#     stored_emb = np.frombuffer(stored_bytes, dtype=np.float32)
-#     new_emb = audio_to_embedding(new_sample_b64)
-
-#     if stored_emb.ndim == 0 or new_emb.ndim == 0:
-#         raise ValueError("Invalid embedding: got scalar instead of vector")
-
-#     # Calculate cosine similarity
-#     similarity = np.dot(stored_emb, new_emb) / (np.linalg.norm(stored_emb) * np.linalg.norm(new_emb))
-    
-#     is_match = similarity > threshold
-    
-#     print(f"[match_voice] Similarity: {similarity:.4f} | Threshold: {threshold} | Match: {is_match}")
-    
-#     return is_match, similarity
 
 import base64
 import io
@@ -96,13 +43,6 @@ def audio_to_embedding_sync(audio_b64: str, target_sr: int = 16000) -> np.ndarra
         # Convert to mono if stereo
         if len(wav.shape) > 1:
             wav = np.mean(wav, axis=1)
-        
-        # Optional: Resample to lower rate for faster processing
-        # Uncomment if you want faster but slightly less accurate
-        # if sampling_rate > target_sr:
-        #     from scipy import signal
-        #     wav = signal.resample(wav, int(len(wav) * target_sr / sampling_rate))
-        #     sampling_rate = target_sr
         
         # Preprocess for Resemblyzer
         wav = preprocess_wav(wav, source_sr=sampling_rate).astype(np.float32)
